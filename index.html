@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>빙축열 시스템 운전비 자동계산</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root {
+  /* Primary blues — softer & balanced */
+  --primary: #2563eb;
+  --primary-light: #3b82f6;
+  --primary-lighter: #93c5fd;
+  --primary-bg: #eff6ff;
+  --primary-bg-2: #dbeafe;
+  --primary-dark: #1d4ed8;
+  --primary-darker: #1e3a8a;
+
+  /* Teal / cyan accent (메인 블루와 어울리는 보조색) */
+  --accent: #0891b2;
+  --accent-light: #06b6d4;
+  --accent-bg: #ecfeff;
+  --accent-bg-2: #cffafe;
+  --accent-text: #0e7490;
+
+  /* Amber (softer than orange) — 소계 강조 */
+  --orange-bg: #fffbeb;
+  --orange-mid: #fde68a;
+  --orange-text: #b45309;
+
+  /* Emerald — 합계 / 성공 */
+  --green-bg: #ecfdf5;
+  --green-mid: #a7f3d0;
+  --green-text: #047857;
+
+  /* Slate neutrals — 깨끗한 회색 톤 */
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+}
+* { box-sizing: border-box; }
+html, body {
+  font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif;
+  margin: 0; padding: 0;
+  background: #f4f6fa;
+  color: var(--gray-800);
+  font-size: 13px;
+  font-feature-settings: "tnum" 1, "case" 1;
+  -webkit-font-smoothing: antialiased;
+}
+body { padding: 18px; }
+
+/* Header */
+.header {
+  max-width: 1700px;
+  margin: 0 auto 16px;
+  padding: 20px 28px;
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 55%, #0891b2 100%);
+  color: white;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.15);
+}
+.header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.6px; }
+.header .subtitle { margin: 6px 0 0; font-size: 12.5px; opacity: 0.92; letter-spacing: -0.2px; }
+.header .badges { display: flex; gap: 8px; margin-top: 10px; }
+.header .badge {
+  font-size: 10.5px; padding: 3px 10px;
+  background: rgba(255,255,255,0.15); border-radius: 12px;
+  font-weight: 500;
+}
+.header .badge.accent { background: rgba(207, 250, 254, 0.28); }
+
+/* Container */
+.container {
+  display: grid;
+  grid-template-columns: 430px 1fr;
+  gap: 16px;
+  max-width: 1700px;
+  margin: 0 auto;
+  transition: grid-template-columns 0.25s ease;
+}
+.container.collapsed {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.container.collapsed .panel.input-panel { display: none; }
+
+.panel {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+  border: 1px solid var(--gray-200);
+}
+.panel.input-panel {
+  align-self: start;
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+}
+.panel.output-panel { padding: 22px 26px; min-width: 0; }
+
+/* Accordion sections */
+.section { border-bottom: 1px solid var(--gray-200); }
+.section:last-of-type { border-bottom: none; }
+.section-header {
+  cursor: pointer;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  transition: background 0.15s;
+}
+.section-header:hover { background: var(--primary-bg); }
+.section.no-collapse .section-header { cursor: default; }
+.section.no-collapse .section-header:hover { background: white; }
+.section-title {
+  font-weight: 600; font-size: 13.5px; color: var(--primary-dark);
+  letter-spacing: -0.2px; display: flex; align-items: center;
+}
+.section-title .num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  background: var(--primary); color: white; border-radius: 50%;
+  margin-right: 10px; font-size: 11px; font-weight: 700;
+}
+.section-toggle {
+  font-size: 11px; color: var(--gray-400);
+  transition: transform 0.2s; line-height: 1;
+}
+.section.collapsed .section-toggle { transform: rotate(-90deg); }
+.section.no-collapse .section-toggle { display: none; }
+.section-content {
+  padding: 0 20px 16px;
+  overflow: hidden;
+  max-height: 2200px;
+  transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.2s;
+  opacity: 1;
+}
+.section.collapsed .section-content {
+  max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0;
+}
+
+/* Inputs */
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 56px;
+  align-items: center;
+  margin-bottom: 7px; gap: 8px;
+}
+.input-row label { font-size: 12px; color: var(--gray-700); font-weight: 500; }
+.input-row input[type=number], .input-row select, select.tier-select {
+  width: 100%; padding: 6px 9px;
+  border: 1px solid var(--gray-300);
+  border-radius: 5px; text-align: right;
+  font-size: 12px; font-family: inherit;
+  background: white;
+}
+select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
+.input-row input[type=number]:focus, select:focus {
+  outline: none; border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.input-row input[readonly] {
+  background: var(--gray-100); color: var(--gray-500); cursor: not-allowed;
+}
+.input-row .unit { font-size: 11px; color: var(--gray-500); font-weight: 500; }
+
+/* Radios */
+.radio-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+.radio-option { position: relative; }
+.radio-option input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+.radio-option label {
+  display: block; padding: 8px 6px; text-align: center;
+  border: 1px solid var(--gray-300); border-radius: 6px;
+  font-size: 12px; color: var(--gray-700); cursor: pointer;
+  transition: all 0.15s; background: white; line-height: 1.3; font-weight: 500;
+}
+.radio-option label small { display: block; font-size: 10px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
+.radio-option input[type=radio]:checked + label {
+  background: var(--primary); color: white; border-color: var(--primary); font-weight: 600;
+}
+.radio-option input[type=radio]:checked + label small { color: rgba(255,255,255,0.8); }
+.radio-option label:hover { background: var(--primary-bg); }
+.radio-option input[type=radio]:checked + label:hover { background: var(--primary); }
+
+/* Count buttons */
+.count-group { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+.count-group .label { font-size: 12px; color: var(--gray-700); font-weight: 600; flex: 1; min-width: 130px; }
+.count-group .btn-group { display: flex; gap: 4px; }
+.count-btn {
+  min-width: 34px; height: 28px;
+  border: 1px solid var(--gray-300); border-radius: 5px;
+  background: white; color: var(--gray-700); cursor: pointer;
+  font-size: 11.5px; font-family: inherit; font-weight: 500; padding: 0 8px;
+}
+.count-btn:hover { background: var(--primary-bg); }
+.count-btn.active { background: var(--primary); color: white; border-color: var(--primary); font-weight: 700; }
+
+/* Equipment block */
+.equip-block {
+  background: var(--gray-50); border-radius: 6px;
+  padding: 10px 12px; margin-bottom: 10px;
+  border: 1px solid var(--gray-200);
+}
+.equip-block .equip-title {
+  font-size: 11px; font-weight: 700; color: var(--gray-600);
+  margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.4px;
+}
+
+/* Tier info */
+.tier-info {
+  background: var(--primary-bg); padding: 10px 12px;
+  border-radius: 6px; font-size: 11px; color: var(--gray-700);
+  margin: 4px 0 12px; line-height: 1.6;
+  border-left: 3px solid var(--primary-light);
+}
+.tier-info strong { color: var(--primary-dark); font-weight: 700; }
+
+.note-text { font-size: 11px; color: var(--gray-500); margin: 4px 0 8px; line-height: 1.55; }
+.op-days-display {
+  background: var(--green-bg); padding: 8px 10px;
+  border-radius: 5px; font-size: 11px; color: var(--gray-700);
+  line-height: 1.6; margin-top: 10px;
+  border-left: 3px solid var(--green-text);
+}
+.op-days-display strong { color: var(--green-text); }
+
+/* Gas grid */
+.month-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 6px; }
+.month-input-cell { display: flex; flex-direction: column; gap: 2px; }
+.month-input-cell label { font-size: 10px; text-align: center; font-weight: 600; }
+.month-input-cell.cooling label { color: var(--primary); }
+.month-input-cell.heating label { color: #c2410c; }
+.month-input-cell input {
+  width: 100%; padding: 4px;
+  border: 1px solid var(--gray-300); border-radius: 4px;
+  text-align: center; font-size: 11px; font-family: inherit;
+}
+.month-input-cell.cooling input { background: var(--primary-bg); }
+.month-input-cell.heating input { background: #fff7ed; }
+
+/* Bar chart */
+.chart-container {
+  background: white; border: 1px solid var(--gray-200);
+  border-radius: 6px; padding: 14px 12px 10px;
+}
+.chart-svg { width: 100%; height: 200px; cursor: crosshair; display: block; }
+.chart-svg .bar { transition: opacity 0.12s; }
+.chart-svg .bar:hover { opacity: 0.75; }
+.chart-svg .bar.cooling { fill: #60a5fa; }
+.chart-svg .bar.heating { fill: #fdba74; }
+.chart-svg .grid-line { stroke: var(--gray-200); stroke-dasharray: 2,3; }
+.chart-svg .axis-label { fill: var(--gray-500); font-size: 9px; font-family: inherit; }
+.chart-svg .value-label { fill: #1e293b; font-size: 9px; font-weight: 700; font-family: inherit; }
+.chart-values-row { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; margin-top: 8px; }
+.chart-value-cell { text-align: center; padding: 0; }
+.cv-input {
+  width: 100%; border: 1px solid transparent; background: transparent;
+  text-align: center; font-size: 12.5px; font-weight: 700;
+  font-family: inherit; padding: 4px 2px; border-radius: 4px;
+  -moz-appearance: textfield; color: var(--gray-700);
+}
+.cv-input::-webkit-outer-spin-button, .cv-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cv-input:hover { background: var(--gray-50); border-color: var(--gray-200); cursor: pointer; }
+.cv-input:focus { outline: none; background: white; border-color: var(--primary-light); box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+.chart-value-cell.cool .cv-input { color: var(--primary); }
+.chart-value-cell.heat .cv-input { color: #c2410c; }
+.chart-legend { display: flex; gap: 14px; font-size: 11px; color: var(--gray-500); margin-bottom: 8px; align-items: center; }
+.chart-legend .item { display: flex; align-items: center; gap: 5px; }
+.chart-legend .swatch { width: 11px; height: 11px; border-radius: 2px; }
+.chart-legend .swatch.cool { background: #60a5fa; }
+.chart-legend .swatch.heat { background: #fdba74; }
+.chart-legend .hint { color: var(--gray-400); font-style: italic; margin-left: auto; }
+
+/* Reset button */
+.reset-btn-wrap { padding: 12px 20px 16px; }
+.reset-btn {
+  width: 100%; padding: 10px; background: white; color: var(--gray-700);
+  border: 1px solid var(--gray-300); border-radius: 6px; cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600; transition: all 0.15s;
+}
+.reset-btn:hover { background: var(--gray-100); border-color: var(--gray-400); }
+
+/* Output panel header */
+.output-header {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 18px; flex-wrap: wrap;
+}
+.output-header h2 {
+  flex: 1; margin: 0; color: var(--primary-dark);
+  font-size: 17px; font-weight: 700; letter-spacing: -0.4px;
+  display: flex; align-items: center; gap: 8px;
+}
+.output-header h2::before {
+  content: ''; width: 4px; height: 18px;
+  background: var(--primary); border-radius: 2px;
+}
+.toggle-input-btn {
+  padding: 7px 12px; background: var(--gray-100); color: var(--gray-700);
+  border: 1px solid var(--gray-300); border-radius: 6px;
+  cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 5px;
+}
+.toggle-input-btn:hover { background: var(--primary-bg); border-color: var(--primary-light); color: var(--primary); }
+.toggle-input-btn .icon { font-size: 13px; transition: transform 0.2s; }
+.container.collapsed .toggle-input-btn .icon { transform: rotate(180deg); }
+.action-buttons { display: flex; gap: 8px; }
+.action-btn {
+  padding: 7px 14px; background: white;
+  border: 1px solid var(--gray-300); border-radius: 6px;
+  cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.15s;
+}
+.action-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+.action-btn.excel { color: var(--green-text); border-color: var(--green-mid); background: var(--green-bg); }
+.action-btn.excel:hover { background: var(--green-mid); border-color: var(--green-text); }
+.action-btn.pdf { color: var(--accent-text); border-color: var(--accent-bg-2); background: var(--accent-bg); }
+.action-btn.pdf:hover { background: var(--accent-bg-2); border-color: var(--accent); }
+
+.output-panel h3 {
+  color: var(--gray-800); margin: 22px 0 10px;
+  font-size: 13.5px; font-weight: 700; letter-spacing: -0.2px;
+  padding-bottom: 6px; border-bottom: 1.5px solid var(--primary-lighter);
+  display: flex; align-items: center; gap: 6px;
+}
+.output-panel h3 .h3-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; background: var(--primary-bg-2);
+  color: var(--primary-darker); font-size: 10px; font-weight: 700;
+  border-radius: 4px;
+}
+
+/* Summary cards */
+.summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 4px; }
+.card {
+  padding: 16px 18px; border-radius: 8px;
+  border: 1px solid var(--gray-200); background: white;
+  position: relative; overflow: hidden;
+}
+.card .card-label { font-size: 11.5px; color: var(--gray-600); margin-bottom: 6px; font-weight: 600; }
+.card .card-value {
+  font-size: 20px; font-weight: 700; color: var(--primary-dark);
+  letter-spacing: -0.4px; font-feature-settings: "tnum" 1;
+}
+.card .card-sub { font-size: 10.5px; color: var(--gray-500); margin-top: 5px; }
+.card.elec { border-top: 3px solid var(--primary-light); }
+.card.gas { border-top: 3px solid #64748b; }
+.card.split { border-top: 3px solid var(--accent-light); }
+.card.grand {
+  background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
+  color: white; border: none;
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.18);
+}
+.card.grand .card-label { color: rgba(255,255,255,0.95); }
+.card.grand .card-value { color: white; font-size: 22px; }
+.card.grand .card-sub { color: rgba(255,255,255,0.88); }
+
+/* Tables — REDESIGNED */
+.table-wrap {
+  border: 1px solid var(--gray-200);
+  border-radius: 8px; overflow: hidden;
+  background: white;
+}
+table.result {
+  width: 100%; border-collapse: collapse;
+  font-size: 11.5px; table-layout: fixed;
+}
+table.result colgroup col.head-col { width: 16%; }
+table.result colgroup col.month-col { width: 6.16%; }
+table.result colgroup col.sum-col { width: 10%; }
+
+table.result th, table.result td {
+  padding: 8px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-bottom: 1px solid var(--gray-200);
+}
+table.result th + th, table.result td + td { border-left: 1px solid var(--gray-200); }
+table.result thead th {
+  background: var(--primary-bg);
+  color: var(--primary-darker);
+  font-weight: 600; text-align: center; padding: 9px 6px;
+  letter-spacing: -0.1px;
+  border-bottom: 2px solid var(--primary-light);
+}
+table.result thead th.row-head {
+  background: var(--primary-bg-2);
+  color: var(--primary-darker);
+  text-align: left; padding-left: 12px;
+}
+table.result thead th.sum-col {
+  background: #ffedd5;     /* orange-100 — 연간합계 열 헤더 */
+  color: #9a3412;          /* orange-800 */
+  border-bottom: 2px solid #fb923c;  /* orange-400 */
+}
+table.result td.row-head {
+  background: var(--gray-50); color: var(--gray-800);
+  text-align: left; font-weight: 500;
+  padding-left: 12px;
+}
+table.result tbody tr:hover td:not(.sum-col):not(.row-head) { background: var(--primary-bg); }
+table.result tbody tr:hover td.row-head { background: var(--primary-bg-2); }
+table.result tbody tr:hover td.sum-col { background: #ffedd5; }
+
+table.result tr.total td {
+  background: #dcfce7;     /* green-100 — 합계 행 */
+  color: #166534;          /* green-800 */
+  font-weight: 700;
+  border-top: 2px solid #22c55e;   /* green-500 강조선 */
+}
+table.result tr.total td.row-head {
+  background: #bbf7d0;     /* green-200 */
+  color: #14532d;          /* green-900 */
+}
+table.result tr.total td.sum-col {
+  /* 합계 행 × 연간 합계 열 교차점 — 상단만 주황선 (하단은 일반 셀 보더) */
+  background: #fed7aa;     /* orange-200 */
+  color: #9a3412;
+  border-top: 2px solid #fb923c;
+}
+table.result tr.total:hover td { background: #dcfce7 !important; }
+table.result tr.total:hover td.row-head { background: #bbf7d0 !important; }
+table.result tr.total:hover td.sum-col { background: #fed7aa !important; }
+
+table.result td.sum-col {
+  background: #fff7ed;     /* orange-50 — 매우 옅은 연간합계 열 */
+  color: #c2410c;          /* orange-700 */
+  font-weight: 700;
+}
+
+@media (max-width: 1200px) {
+  table.result { font-size: 11px; }
+  table.result th, table.result td { padding: 6px 4px; }
+}
+@media (max-width: 1100px) {
+  .container { grid-template-columns: 1fr; }
+  .panel.input-panel { position: relative; max-height: none; }
+  .summary-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* === PDF capture mode (A4 landscape 1-page fit) === */
+.pdf-capture {
+  width: 1080px;            /* render box; will be scaled to A4 landscape */
+  padding: 14px 16px;
+  background: white;
+  font-family: 'Pretendard Variable', 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  color: #1f2937;
+  box-sizing: border-box;
+}
+.pdf-capture .pdf-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e3a8a;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  background: #eff6ff;
+  border-left: 3px solid #3b82f6;
+  border-radius: 4px;
+  letter-spacing: -0.3px;
+}
+.pdf-capture .pdf-title .meta {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #4b5563;
+  margin-top: 2px;
+  letter-spacing: 0;
+}
+.pdf-capture h3 {
+  font-size: 11px !important;
+  margin: 8px 0 3px !important;
+  padding: 2px 0 3px !important;
+  border-bottom: 1.5px solid #3b82f6 !important;
+  color: #1f2937 !important;
+  font-weight: 700 !important;
+  display: flex !important; align-items: center; gap: 5px;
+}
+.pdf-capture h3 .h3-num {
+  width: 15px !important; height: 15px !important;
+  font-size: 9px !important;
+  background: #dbeafe !important; color: #1e3a8a !important;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.pdf-capture .table-wrap {
+  border: 1px solid #e5e7eb;
+  border-radius: 4px; overflow: hidden;
+  margin-bottom: 0;
+}
+.pdf-capture table.result { font-size: 9px !important; table-layout: fixed; width: 100%; border-collapse: collapse; }
+.pdf-capture table.result th, .pdf-capture table.result td {
+  padding: 3px 4px !important;
+  font-size: 9px !important;
+  line-height: 1.15 !important;
+  border-bottom: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* PDF에서 데이터 셀(숫자)만 폰트 축소 — 구분/헤더 제외 */
+.pdf-capture table.result tbody td:not(.row-head) {
+  font-size: 7.5px !important;
+  padding: 2.5px 4px !important;
+  letter-spacing: -0.1px;
+}
+.pdf-capture table.result thead th {
+  padding: 4px 4px !important;
+  background: #eff6ff !important; color: #1e3a8a !important;
+  text-align: center; font-weight: 600;
+  border-bottom: 1.5px solid #3b82f6 !important;
+}
+.pdf-capture table.result thead th.row-head { background: #dbeafe !important; text-align: left; color: #1e3a8a !important; }
+.pdf-capture table.result thead th.sum-col { background: #ffedd5 !important; color: #9a3412 !important; border-bottom: 1.5px solid #fb923c !important; }
+.pdf-capture table.result td.row-head { background: #f8fafc; text-align: left; font-weight: 500; color: #1e293b; }
+.pdf-capture table.result tr.total td { background: #dcfce7; color: #166534; font-weight: 700; border-top: 1.5px solid #22c55e; }
+.pdf-capture table.result tr.total td.row-head { background: #bbf7d0; color: #14532d; }
+.pdf-capture table.result tr.total td.sum-col { background: #fed7aa; color: #9a3412; border-top: 1.5px solid #fb923c; }
+.pdf-capture table.result td.sum-col { background: #fff7ed; color: #c2410c; font-weight: 700; }
+.pdf-capture table.result colgroup col.head-col { width: 18%; }
+.pdf-capture table.result colgroup col.month-col { width: 5.83%; }
+.pdf-capture table.result colgroup col.sum-col { width: 12%; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>빙축열 시스템 운전비 자동계산</h1>
+  <div class="subtitle">발주처 제안용 · 심야전기(을)II + 일반전기(을) 요금체계 반영 · 축열조 운영 로직 적용</div>
+  <div class="badges">
+    <span class="badge">2026년 기준</span>
+    <span class="badge">월별 운전부하 자동 반영</span>
+    <span class="badge accent">제안 검토용</span>
+  </div>
+</div>
+
+<div class="container" id="mainContainer">
+
+<!-- LEFT: Inputs -->
+<div class="panel input-panel">
+
+  <!-- 1. 운전 조건 -->
+  <div class="section" id="sec1">
+    <div class="section-header" onclick="toggleSection('sec1')">
+      <div class="section-title"><span class="num">1</span>운전 조건</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="note-text" style="margin-top:6px;">운전 패턴</div>
+      <div class="radio-group">
+        <div class="radio-option"><input type="radio" name="opPattern" id="patOffice" value="office" checked><label for="patOffice">오피스<small>평일만</small></label></div>
+        <div class="radio-option"><input type="radio" name="opPattern" id="patCommercial" value="commercial"><label for="patCommercial">상업시설<small>전일</small></label></div>
+        <div class="radio-option"><input type="radio" name="opPattern" id="patFixed" value="fixed"><label for="patFixed">일괄기입<small>사용자 지정</small></label></div>
+      </div>
+      <div class="input-row" id="fixedDaysRow" style="display:none;">
+        <label>일괄 운전일수</label><input type="number" id="fixedDays" value="20" step="1" min="1" max="31"><span class="unit">일/월</span>
+      </div>
+      <div class="input-row"><label>일 운전시간 (주간)</label><input type="number" id="dayHours" value="10" step="0.5"><span class="unit">h</span></div>
+      <div class="input-row"><label>야간 축냉 운전시간</label><input type="number" id="nightHours" value="10" step="0.5" readonly><span class="unit">h</span></div>
+      <div class="input-row"><label>축열조 용량비율 (α)</label><input type="number" id="storageRatio" value="45" step="1"><span class="unit">%</span></div>
+      <div class="op-days-display" id="opDaysDisplay"></div>
+    </div>
+  </div>
+
+  <!-- 2. 냉방 장비 동력 -->
+  <div class="section" id="sec2">
+    <div class="section-header" onclick="toggleSection('sec2')">
+      <div class="section-title"><span class="num">2</span>냉방 장비 동력</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="count-group">
+        <div class="label">빙축열 장비 대수</div>
+        <div class="btn-group">
+          <button type="button" class="count-btn" data-target="iceCount" data-val="1">1대</button>
+          <button type="button" class="count-btn active" data-target="iceCount" data-val="2">2대</button>
+          <button type="button" class="count-btn" data-target="iceCount" data-val="3">3대</button>
+        </div>
+      </div>
+      <div class="equip-block">
+        <div class="equip-title">대당 동력 (kW)</div>
+        <div class="input-row"><label>냉동기(빙축열용, 주간)</label><input type="number" id="iceTurboDay" value="216.1" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>냉동기(빙축열용, 야간)</label><input type="number" id="iceTurboNight" value="186.9" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>냉각탑(빙축열용)</label><input type="number" id="iceCT" value="45" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(브라인 순환)</label><input type="number" id="brinePump" value="18.5" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(냉각수, 빙축열용)</label><input type="number" id="iceCWP" value="37" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(냉수, 빙축열용)</label><input type="number" id="iceCHWP" value="30" step="0.1"><span class="unit">kW</span></div>
+      </div>
+
+      <div class="count-group" style="margin-top:12px;">
+        <div class="label">상온 장비 대수</div>
+        <div class="btn-group">
+          <button type="button" class="count-btn" data-target="normalCount" data-val="0">미사용</button>
+          <button type="button" class="count-btn" data-target="normalCount" data-val="1">1대</button>
+          <button type="button" class="count-btn active" data-target="normalCount" data-val="2">2대</button>
+          <button type="button" class="count-btn" data-target="normalCount" data-val="3">3대</button>
+        </div>
+      </div>
+      <div class="equip-block">
+        <div class="equip-title">대당 동력 (kW)</div>
+        <div class="input-row"><label>냉동기(상온용)</label><input type="number" id="normalTurbo" value="206.7" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>냉각탑(상온용)</label><input type="number" id="normalCT" value="22.5" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(냉각수, 상온용)</label><input type="number" id="normalCWP" value="18.5" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(냉수, 상온용)</label><input type="number" id="normalCHWP" value="11" step="0.1"><span class="unit">kW</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 난방 장비 동력 -->
+  <div class="section" id="sec3">
+    <div class="section-header" onclick="toggleSection('sec3')">
+      <div class="section-title"><span class="num">3</span>난방 장비 동력</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="count-group">
+        <div class="label">난방 장비 대수</div>
+        <div class="btn-group">
+          <button type="button" class="count-btn" data-target="heatCount" data-val="1">1대</button>
+          <button type="button" class="count-btn active" data-target="heatCount" data-val="2">2대</button>
+          <button type="button" class="count-btn" data-target="heatCount" data-val="3">3대</button>
+        </div>
+      </div>
+      <div class="equip-block">
+        <div class="equip-title">대당 소모 에너지</div>
+        <div class="input-row"><label>보일러(난방용, 전기)</label><input type="number" id="boilerElec" value="18" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>보일러(난방용, 가스)</label><input type="number" id="boilerGas" value="194.3" step="0.1"><span class="unit">N㎥/h</span></div>
+        <div class="input-row"><label>펌프(난방 순환)</label><input type="number" id="heatPump" value="7.5" step="0.1"><span class="unit">kW</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 가스 요금 -->
+  <div class="section" id="sec4">
+    <div class="section-header" onclick="toggleSection('sec4')">
+      <div class="section-title"><span class="num">4</span>가스 요금</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="input-row" style="margin-top:6px;">
+        <label>가스 발열량</label><input type="number" id="gasHeat" value="43.54" step="0.01"><span class="unit">MJ/N㎥</span>
+      </div>
+      <div class="note-text">월별 가스 단가 (원/MJ) — 동/하절기 차등</div>
+      <div class="month-grid" id="gasRateGrid"></div>
+    </div>
+  </div>
+
+  <!-- 5. 전기 요금 단가 -->
+  <div class="section" id="sec5">
+    <div class="section-header" onclick="toggleSection('sec5')">
+      <div class="section-title"><span class="num">5</span>전기 요금 단가</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="note-text" style="margin-top:6px;">일반전기 종류 — 일반용전력(을)</div>
+      <select class="tier-select" id="tierSelect"></select>
+      <div class="tier-info" id="tierInfo"></div>
+      <div class="input-row"><label>심야전기 사용요금(야간)</label><input type="number" id="rateNight" value="71.9" step="0.1"><span class="unit">원/kWh</span></div>
+      <div class="input-row"><label>심야전기 사용요금(주간)</label><input type="number" id="rateIceDay" value="115.1" step="0.1"><span class="unit">원/kWh</span></div>
+      <div class="input-row"><label>일반전기 사용요금</label><input type="number" id="rateGeneral" value="127.6" step="0.1"><span class="unit">원/kWh</span></div>
+      <div class="input-row"><label>심야전기 기본요금</label><input type="number" id="rateBaseIce" value="7160" step="10"><span class="unit">원/kW</span></div>
+      <div class="input-row"><label>심야전기 최저요금</label><input type="number" id="rateMinIce" value="710" step="10"><span class="unit">원/kW</span></div>
+    </div>
+  </div>
+
+  <!-- 6. 월별 운전율 -->
+  <div class="section no-collapse" id="sec6">
+    <div class="section-header">
+      <div class="section-title"><span class="num">6</span>월별 운전율 (%)</div>
+    </div>
+    <div class="section-content">
+      <div class="chart-legend">
+        <span class="item"><span class="swatch cool"></span>냉방 (5~10월)</span>
+        <span class="item"><span class="swatch heat"></span>난방 (11~4월)</span>
+        <span class="hint">막대 클릭/드래그 또는 하단 수치 직접 입력</span>
+      </div>
+      <div class="chart-container">
+        <svg class="chart-svg" id="loadChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+        <div class="chart-values-row" id="loadValuesRow"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="reset-btn-wrap">
+    <button class="reset-btn" onclick="resetDefaults()">기본값으로 초기화</button>
+  </div>
+</div>
+
+<!-- RIGHT: Outputs -->
+<div class="panel output-panel" id="outputPanel">
+  <div class="output-header">
+    <button class="toggle-input-btn" onclick="toggleMainPanel()">
+      <span class="icon">◀</span><span class="label-text">입력 접기</span>
+    </button>
+    <h2>자동 계산 결과</h2>
+    <div class="action-buttons">
+      <button class="action-btn excel" onclick="downloadExcel()">📊 엑셀 다운로드</button>
+      <button class="action-btn pdf" onclick="downloadPDF()">📄 PDF 다운로드</button>
+    </div>
+  </div>
+
+  <div class="summary-cards">
+    <div class="card elec">
+      <div class="card-label">연간 전기 사용량</div>
+      <div class="card-value" id="totalElecKwh">0 kWh</div>
+      <div class="card-sub" id="elecBreakdown">-</div>
+    </div>
+    <div class="card gas">
+      <div class="card-label">연간 가스 사용량</div>
+      <div class="card-value" id="totalGasNm3">0 N㎥</div>
+      <div class="card-sub" id="gasBreakdown">난방 전용 (11~4월)</div>
+    </div>
+    <div class="card split">
+      <div class="card-label">연간 전기료 / 가스료</div>
+      <div class="card-value" id="totalSplit">0.00억 / 0.00억</div>
+      <div class="card-sub">전기 / 가스 (억원)</div>
+    </div>
+    <div class="card grand">
+      <div class="card-label">연간 총 운전비</div>
+      <div class="card-value" id="totalAll">0 원</div>
+      <div class="card-sub" id="totalSub">-</div>
+    </div>
+  </div>
+
+  <div id="pdfContent">
+    <h3><span class="h3-num">A</span>월별 전기 사용량 (kWh)</h3>
+    <div class="table-wrap" id="elecUseTable"></div>
+
+    <h3><span class="h3-num">B</span>월별 가스 사용량 (N㎥)</h3>
+    <div class="table-wrap" id="gasUseTable"></div>
+
+    <h3><span class="h3-num">C</span>월별 전기료 (원)</h3>
+    <div class="table-wrap" id="elecCostTable"></div>
+
+    <h3><span class="h3-num">D</span>월별 가스료 (원)</h3>
+    <div class="table-wrap" id="gasCostTable"></div>
+
+    <h3><span class="h3-num">E</span>월별 운전비 종합 (원)</h3>
+    <div class="table-wrap" id="totalCostTable"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+'use strict';
+
+const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+const coolingSet = new Set([4,5,6,7,8,9]);  // 5~10월 냉방
+
+const days2026 = {
+  weekdays: [22, 20, 22, 22, 21, 22, 23, 21, 22, 22, 21, 23],
+  total:    [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+};
+
+const TIERS = {
+  '고압A 선택Ⅰ':  { base: 7220, summer: 145.7, spring: 115.3, winter: 145.9 },
+  '고압A 선택Ⅱ':  { base: 8320, summer: 140.2, spring: 109.8, winter: 140.4 },
+  '고압A 선택Ⅲ':  { base: 9810, summer: 139.6, spring: 108.5, winter: 139.8 },
+  '고압B 선택Ⅰ':  { base: 6630, summer: 148.2, spring: 118.2, winter: 148.2 },
+  '고압B 선택Ⅱ':  { base: 7380, summer: 144.4, spring: 114.4, winter: 144.4 },
+  '고압B 선택Ⅲ':  { base: 8190, summer: 142.7, spring: 112.7, winter: 142.7 }
+};
+
+const defaultGasRates = [19.8964, 19.8964, 19.8964, 18.6208, 12.6624, 12.6624, 12.6624, 12.6624, 12.6624, 18.6208, 18.6208, 19.8964];
+const defaultLoadFactors = [55, 45, 25, 10, 20, 50, 80, 85, 60, 15, 30, 50];
+let loadFactors = [...defaultLoadFactors];
+
+const state = {
+  iceCount: 2, normalCount: 2, heatCount: 2,
+  opPattern: 'office',
+  collapsed: false
+};
+
+// Latest calculation snapshot — used by download functions
+let latestCalc = null;
+
+function getSeason(m) {
+  if (m >= 5 && m <= 7) return 'summer';
+  if (m === 10 || m === 11 || m === 0 || m === 1) return 'winter';
+  return 'spring';
+}
+
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+function toggleMainPanel() {
+  state.collapsed = !state.collapsed;
+  const c = document.getElementById('mainContainer');
+  c.classList.toggle('collapsed', state.collapsed);
+  const lbl = document.querySelector('.toggle-input-btn .label-text');
+  if (lbl) lbl.textContent = state.collapsed ? '입력 펴기' : '입력 접기';
+}
+
+function buildGasGrid() {
+  const c = document.getElementById('gasRateGrid');
+  c.innerHTML = '';
+  for (let i = 0; i < 12; i++) {
+    const div = document.createElement('div');
+    const cool = coolingSet.has(i);
+    div.className = 'month-input-cell ' + (cool ? 'cooling' : 'heating');
+    div.innerHTML = `<label>${months[i]}</label><input type="number" id="gr${i}" value="${defaultGasRates[i]}" step="0.01">`;
+    c.appendChild(div);
+  }
+}
+
+function buildTierSelect() {
+  const sel = document.getElementById('tierSelect');
+  sel.innerHTML = '';
+  for (const t of Object.keys(TIERS)) {
+    const o = document.createElement('option');
+    o.value = t;
+    o.textContent = t + '  ·  기본요금 ' + TIERS[t].base.toLocaleString() + '원/kW';
+    if (t === '고압A 선택Ⅱ') o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => { updateTierInfo(); applyTierToField(); calculate(); };
+}
+
+function updateTierInfo() {
+  const tier = document.getElementById('tierSelect').value;
+  const t = TIERS[tier];
+  document.getElementById('tierInfo').innerHTML =
+    `<strong>${tier}</strong> · 기본요금 <strong>${t.base.toLocaleString()}원/kW</strong><br>` +
+    `중간부하 단가(원/kWh) — 여름 <strong>${t.summer}</strong> / 봄·가을 <strong>${t.spring}</strong> / 겨울 <strong>${t.winter}</strong>`;
+}
+
+function applyTierToField() {
+  const tier = document.getElementById('tierSelect').value;
+  const t = TIERS[tier];
+  const avg = (t.summer*3 + t.spring*5 + t.winter*4) / 12;
+  document.getElementById('rateGeneral').value = avg.toFixed(1);
+}
+
+function attachCountButtons() {
+  document.querySelectorAll('.count-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tgt = this.dataset.target;
+      const val = parseInt(this.dataset.val);
+      document.querySelectorAll(`.count-btn[data-target="${tgt}"]`).forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      state[tgt] = val;
+      calculate();
+    });
+  });
+}
+
+function attachRadios() {
+  document.querySelectorAll('input[name="opPattern"]').forEach(r => {
+    r.addEventListener('change', function() {
+      state.opPattern = this.value;
+      document.getElementById('fixedDaysRow').style.display = this.value === 'fixed' ? '' : 'none';
+      calculate();
+    });
+  });
+}
+
+function getOpDays(m) {
+  if (state.opPattern === 'office') return days2026.weekdays[m];
+  if (state.opPattern === 'commercial') return days2026.total[m];
+  return parseFloat(document.getElementById('fixedDays').value) || 20;
+}
+
+/* ===== Interactive Bar Chart ===== */
+function renderChartBars() {
+  const svg = document.getElementById('loadChart');
+  const W = 600, H = 200;
+  const padL = 30, padR = 8, padT = 12, padB = 28;
+  const cw = W - padL - padR;
+  const ch = H - padT - padB;
+  const barW = cw / 12;
+  const innerBarW = barW - 6;
+  let html = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (ch * i / 4);
+    const v = 100 - i * 25;
+    html += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"></line>`;
+    html += `<text class="axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${v}%</text>`;
+  }
+  for (let i = 0; i < 12; i++) {
+    const cls = coolingSet.has(i) ? 'cooling' : 'heating';
+    const v = Math.max(0, Math.min(100, loadFactors[i]));
+    const barH = (v / 100) * ch;
+    const x = padL + barW * i + 3;
+    const y = padT + ch - barH;
+    html += `<rect class="bar ${cls}" x="${x}" y="${y}" width="${innerBarW}" height="${barH}" rx="3"></rect>`;
+    if (v >= 10) {
+      html += `<text class="value-label" x="${padL + barW * i + barW/2}" y="${y + 12}" text-anchor="middle">${v.toFixed(0)}</text>`;
+    }
+    html += `<text class="axis-label" x="${padL + barW * i + barW/2}" y="${H - padB + 14}" text-anchor="middle">${months[i]}</text>`;
+  }
+  svg.innerHTML = html;
+}
+
+function buildChartValues() {
+  const container = document.getElementById('loadValuesRow');
+  let html = '';
+  for (let i = 0; i < 12; i++) {
+    const cool = coolingSet.has(i);
+    html += `<div class="chart-value-cell ${cool?'cool':'heat'}"><input type="number" class="cv-input" data-month="${i}" min="0" max="100" step="1" value="${Math.round(loadFactors[i])}"></div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.cv-input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const idx = parseInt(e.target.dataset.month);
+      let v = parseFloat(e.target.value);
+      if (isNaN(v)) v = 0;
+      v = Math.max(0, Math.min(100, v));
+      loadFactors[idx] = v;
+      renderChartBars();
+      calculate();
+    });
+  });
+}
+
+function updateChartValuesOnly() {
+  document.querySelectorAll('.cv-input').forEach((inp, i) => {
+    if (document.activeElement !== inp) {
+      inp.value = Math.round(loadFactors[i]);
+    }
+  });
+}
+
+function handleChartInteraction(clientX, clientY) {
+  const svg = document.getElementById('loadChart');
+  const rect = svg.getBoundingClientRect();
+  const x = (clientX - rect.left) * (600 / rect.width);
+  const y = (clientY - rect.top) * (200 / rect.height);
+  const padL = 30, padT = 12, padR = 8, padB = 28;
+  const cw = 600 - padL - padR;
+  const ch = 200 - padT - padB;
+  const barW = cw / 12;
+  const idx = Math.floor((x - padL) / barW);
+  if (idx < 0 || idx > 11) return;
+  let v = ((padT + ch - y) / ch) * 100;
+  v = Math.max(0, Math.min(100, v));
+  loadFactors[idx] = Math.round(v);
+  renderChartBars();
+  updateChartValuesOnly();
+  calculate();
+}
+
+function attachChartEvents() {
+  const svg = document.getElementById('loadChart');
+  let drag = false;
+  svg.addEventListener('mousedown', e => { drag = true; handleChartInteraction(e.clientX, e.clientY); e.preventDefault(); });
+  svg.addEventListener('mousemove', e => { if (drag) handleChartInteraction(e.clientX, e.clientY); });
+  document.addEventListener('mouseup', () => { drag = false; });
+  svg.addEventListener('touchstart', e => { drag = true; const t = e.touches[0]; handleChartInteraction(t.clientX, t.clientY); e.preventDefault(); }, {passive: false});
+  svg.addEventListener('touchmove', e => { if (drag) { const t = e.touches[0]; handleChartInteraction(t.clientX, t.clientY); e.preventDefault(); } }, {passive: false});
+  document.addEventListener('touchend', () => { drag = false; });
+}
+
+/* ===== Utilities ===== */
+function num(id) { return parseFloat(document.getElementById(id).value) || 0; }
+function fmt(n) { if (Math.abs(n) < 0.5) return '-'; return Math.round(n).toLocaleString('ko-KR'); }
+function fmtWon(n) { return Math.round(n).toLocaleString('ko-KR') + ' 원'; }
+function fmtEok(n) { return (n / 1e8).toFixed(2) + '억'; }
+
+function buildTable(rows, hasTotal = true) {
+  let html = '<table class="result"><colgroup><col class="head-col">';
+  for (let i = 0; i < 12; i++) html += '<col class="month-col">';
+  if (hasTotal) html += '<col class="sum-col">';
+  html += '</colgroup>';
+  html += '<thead><tr><th class="row-head">구분</th>';
+  for (const m of months) html += `<th>${m}</th>`;
+  if (hasTotal) html += '<th class="sum-col">연간 합계</th>';
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    const cls = row.cls ? ` class="${row.cls}"` : '';
+    html += `<tr${cls}><td class="row-head" title="${row.label}">${row.label}</td>`;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const v = row.values[i] || 0;
+      sum += v;
+      html += `<td>${fmt(v)}</td>`;
+    }
+    if (hasTotal) html += `<td class="sum-col">${fmt(sum)}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+/* ===== Main Calculation ===== */
+function calculate() {
+  const tier = document.getElementById('tierSelect').value;
+  const t = TIERS[tier];
+
+  const dayH = num('dayHours');
+  const nightH = num('nightHours');
+  const alpha = num('storageRatio') / 100;
+
+  const iceN = state.iceCount;
+  const normN = state.normalCount;
+  const heatN = state.heatCount;
+
+  const iceTurboDay = num('iceTurboDay') * iceN;
+  const iceTurboNight = num('iceTurboNight') * iceN;
+  const iceCT = num('iceCT') * iceN;
+  const brinePump = num('brinePump') * iceN;
+  const iceCWP = num('iceCWP') * iceN;
+  const iceCHWP = num('iceCHWP') * iceN;
+
+  const normalTurbo = num('normalTurbo') * normN;
+  const normalCT = num('normalCT') * normN;
+  const normalCWP = num('normalCWP') * normN;
+  const normalCHWP = num('normalCHWP') * normN;
+
+  const boilerElec = num('boilerElec') * heatN;
+  const boilerGas = num('boilerGas') * heatN;
+  const heatPump = num('heatPump') * heatN;
+
+  const rateNight = num('rateNight');
+  const rateIceDay = num('rateIceDay');
+  const rateGeneral = num('rateGeneral');
+  const rateBaseIce = num('rateBaseIce');
+  const rateMinIce = num('rateMinIce');
+  const gasHeat = num('gasHeat');
+
+  const gr = [];
+  for (let i = 0; i < 12; i++) gr.push(num('gr' + i));
+
+  const equipmentRows = [
+    { label: '냉동기(빙축열용, 야간 축냉)', tariff: 'night', vals: [] },
+    { label: '냉동기(빙축열용, 주간 추가)', tariff: 'iceDay', vals: [] },
+    { label: '냉동기(상온용)', tariff: 'general', vals: [] },
+    { label: '냉각탑(빙축열용)', tariff: 'split-ice', vals: [], nightVals: [], dayVals: [] },
+    { label: '냉각탑(상온용)', tariff: 'general', vals: [] },
+    { label: '펌프(브라인 순환)', tariff: 'night', vals: [] },
+    { label: '펌프(냉각수, 빙축열용)', tariff: 'split-ice', vals: [], nightVals: [], dayVals: [] },
+    { label: '펌프(냉수, 빙축열용)', tariff: 'iceDay', vals: [] },
+    { label: '펌프(냉각수, 상온용)', tariff: 'general', vals: [] },
+    { label: '펌프(냉수, 상온용)', tariff: 'general', vals: [] },
+    { label: '보일러(난방용)', tariff: 'general', vals: [] },
+    { label: '펌프(난방 순환)', tariff: 'general', vals: [] }
+  ];
+  const gasUse = [];
+
+  for (let m = 0; m < 12; m++) {
+    const beta = loadFactors[m] / 100;
+    const cool = coolingSet.has(m);
+    const days = getOpDays(m);
+    let iceNight_h = 0, iceDayExtra_h = 0, normalDay_h = 0;
+    let iceDelivery_h = 0, boilerH = 0;
+    if (cool && beta > 0 && alpha > 0) {
+      iceNight_h = nightH * Math.min(beta / alpha, 1);
+      iceDayExtra_h = dayH * Math.max(0, beta - alpha);
+      normalDay_h = dayH * beta;
+      iceDelivery_h = dayH * beta;
+    } else if (!cool && beta > 0) {
+      boilerH = dayH * beta;
+    }
+    equipmentRows[0].vals.push(iceTurboNight * days * iceNight_h);
+    equipmentRows[1].vals.push(iceTurboDay * days * iceDayExtra_h);
+    equipmentRows[2].vals.push(normalTurbo * days * normalDay_h);
+    const ictN = iceCT * days * iceNight_h;
+    const ictD = iceCT * days * iceDayExtra_h;
+    equipmentRows[3].vals.push(ictN + ictD);
+    equipmentRows[3].nightVals.push(ictN);
+    equipmentRows[3].dayVals.push(ictD);
+    equipmentRows[4].vals.push(normalCT * days * normalDay_h);
+    equipmentRows[5].vals.push(brinePump * days * iceNight_h);
+    const icwpN = iceCWP * days * iceNight_h;
+    const icwpD = iceCWP * days * iceDayExtra_h;
+    equipmentRows[6].vals.push(icwpN + icwpD);
+    equipmentRows[6].nightVals.push(icwpN);
+    equipmentRows[6].dayVals.push(icwpD);
+    equipmentRows[7].vals.push(iceCHWP * days * iceDelivery_h);
+    equipmentRows[8].vals.push(normalCWP * days * normalDay_h);
+    equipmentRows[9].vals.push(normalCHWP * days * normalDay_h);
+    equipmentRows[10].vals.push(boilerElec * days * boilerH);
+    equipmentRows[11].vals.push(heatPump * days * boilerH);
+    gasUse.push(boilerGas * days * boilerH);
+  }
+
+  const totalKwh = new Array(12).fill(0);
+  const nightUse = new Array(12).fill(0);
+  const iceDayUse = new Array(12).fill(0);
+  const generalUse = new Array(12).fill(0);
+  for (const row of equipmentRows) {
+    for (let m = 0; m < 12; m++) {
+      const v = row.vals[m] || 0;
+      totalKwh[m] += v;
+      if (row.tariff === 'night') nightUse[m] += v;
+      else if (row.tariff === 'iceDay') iceDayUse[m] += v;
+      else if (row.tariff === 'general') generalUse[m] += v;
+      else if (row.tariff === 'split-ice') {
+        nightUse[m] += row.nightVals[m];
+        iceDayUse[m] += row.dayVals[m];
+      }
+    }
+  }
+
+  const iceConnKW = Math.max(iceTurboDay, iceTurboNight) + iceCT + brinePump + iceCWP + iceCHWP;
+  const genConnKW = normalTurbo + normalCT + normalCWP + normalCHWP + boilerElec + heatPump;
+
+  const monthlyIceBase = [];
+  for (let m = 0; m < 12; m++) {
+    const totalIce = nightUse[m] + iceDayUse[m];
+    const dayRatio = totalIce > 0 ? iceDayUse[m] / totalIce : 0;
+    const perKW = Math.max(rateBaseIce * dayRatio, rateMinIce);
+    monthlyIceBase.push(iceConnKW * perKW);
+  }
+  const monthlyGenBase = new Array(12).fill(genConnKW * t.base);
+
+  const monthlyNightCost = nightUse.map(v => v * rateNight);
+  const monthlyIceDayCost = iceDayUse.map(v => v * rateIceDay);
+  const monthlyGenCost = generalUse.map(v => v * rateGeneral);
+  const monthlyUseCost = monthlyNightCost.map((v, i) => v + monthlyIceDayCost[i] + monthlyGenCost[i]);
+  const monthlyBase = monthlyIceBase.map((v, i) => v + monthlyGenBase[i]);
+  const monthlyPreVat = monthlyBase.map((v, i) => v + monthlyUseCost[i]);
+  const monthlyVat = monthlyPreVat.map(v => v * 0.1);
+  const monthlyElec = monthlyPreVat.map((v, i) => v + monthlyVat[i]);
+
+  const monthlyGasUseCost = gasUse.map((v, m) => v * gasHeat * gr[m]);
+  const monthlyGasVat = monthlyGasUseCost.map(v => v * 0.1);
+  const monthlyGasTotal = monthlyGasUseCost.map((v, i) => v + monthlyGasVat[i]);
+  const monthlyCombined = monthlyElec.map((v, i) => v + monthlyGasTotal[i]);
+
+  const totalElecKwh = totalKwh.reduce((a,b)=>a+b, 0);
+  const totalGasNm3 = gasUse.reduce((a,b)=>a+b, 0);
+  const totalElec = monthlyElec.reduce((a,b)=>a+b, 0);
+  const totalGas = monthlyGasTotal.reduce((a,b)=>a+b, 0);
+  const totalAll = totalElec + totalGas;
+
+  document.getElementById('totalElecKwh').textContent = totalElecKwh.toLocaleString('ko-KR', {maximumFractionDigits:0}) + ' kWh';
+  document.getElementById('totalGasNm3').textContent = totalGasNm3.toLocaleString('ko-KR', {maximumFractionDigits:0}) + ' N㎥';
+  document.getElementById('totalSplit').textContent = fmtEok(totalElec) + ' / ' + fmtEok(totalGas);
+  document.getElementById('totalAll').textContent = fmtWon(totalAll);
+  document.getElementById('totalSub').textContent = '월평균 ' + fmtWon(totalAll/12);
+  const nT = nightUse.reduce((a,b)=>a+b,0);
+  const iT = iceDayUse.reduce((a,b)=>a+b,0);
+  const gT = generalUse.reduce((a,b)=>a+b,0);
+  document.getElementById('elecBreakdown').textContent =
+    `야간 ${Math.round(nT/1000)}k / 주간빙축 ${Math.round(iT/1000)}k / 일반 ${Math.round(gT/1000)}k kWh`;
+
+  const od = [];
+  for (let m = 0; m < 12; m++) od.push(getOpDays(m));
+  const patName = state.opPattern === 'office' ? '오피스 (2026년 평일)' : state.opPattern === 'commercial' ? '상업시설 (전일)' : '일괄기입';
+  let odHtml = `<strong>${patName}</strong> · 월별 운전일수<br>`;
+  odHtml += od.map((d,i) => `${months[i]} ${d}일`).slice(0,6).join(' · ') + '<br>';
+  odHtml += od.map((d,i) => `${months[i]} ${d}일`).slice(6).join(' · ');
+  odHtml += `<br><strong>연 ${od.reduce((a,b)=>a+b,0)}일</strong>`;
+  document.getElementById('opDaysDisplay').innerHTML = odHtml;
+
+  // Build tables
+  const elecUseRows = equipmentRows.filter(r => r.vals.some(v => v > 0.5)).map(r => ({ label: r.label, values: r.vals }));
+  elecUseRows.push({ label: '전기 사용량 합계', values: totalKwh, cls: 'total' });
+  document.getElementById('elecUseTable').innerHTML = buildTable(elecUseRows);
+
+  document.getElementById('gasUseTable').innerHTML = buildTable([
+    { label: '보일러(난방용)', values: gasUse },
+    { label: '가스 사용량 합계', values: gasUse, cls: 'total' }
+  ]);
+
+  const elecCostRows = [
+    { label: `심야전기 기본요금 (빙축 ${iceConnKW.toFixed(1)}kW)`, values: monthlyIceBase },
+    { label: `일반전기 기본요금 (${genConnKW.toFixed(1)}kW)`, values: monthlyGenBase },
+    { label: `심야 사용요금(야간) ${rateNight}원/kWh`, values: monthlyNightCost },
+    { label: `심야 사용요금(주간) ${rateIceDay}원/kWh`, values: monthlyIceDayCost },
+    { label: `일반전기 사용요금 ${rateGeneral}원/kWh`, values: monthlyGenCost },
+    { label: '전기료 총계 (부가세 포함)', values: monthlyElec, cls: 'total' }
+  ];
+  document.getElementById('elecCostTable').innerHTML = buildTable(elecCostRows);
+
+  const gasCostRows = [
+    { label: '사용요금 (가스 × 발열량 × 단가)', values: monthlyGasUseCost },
+    { label: '가스료 총계 (부가세 포함)', values: monthlyGasTotal, cls: 'total' }
+  ];
+  document.getElementById('gasCostTable').innerHTML = buildTable(gasCostRows);
+
+  const totalRows = [
+    { label: '월 운전비 합계 (전기료 + 가스료, 부가세 포함)', values: monthlyCombined, cls: 'total' }
+  ];
+  document.getElementById('totalCostTable').innerHTML = buildTable(totalRows);
+
+  // Cache for downloads
+  latestCalc = {
+    tier, t,
+    iceN, normN, heatN,
+    iceConnKW, genConnKW,
+    rateNight, rateIceDay, rateGeneral, rateBaseIce, rateMinIce, gasHeat,
+    inputs: {
+      iceTurboDay: num('iceTurboDay'), iceTurboNight: num('iceTurboNight'),
+      iceCT: num('iceCT'), brinePump: num('brinePump'),
+      iceCWP: num('iceCWP'), iceCHWP: num('iceCHWP'),
+      normalTurbo: num('normalTurbo'), normalCT: num('normalCT'),
+      normalCWP: num('normalCWP'), normalCHWP: num('normalCHWP'),
+      boilerElec: num('boilerElec'), boilerGas: num('boilerGas'),
+      heatPump: num('heatPump'),
+      dayHours: dayH, nightHours: nightH, alpha: alpha
+    },
+    monthlyDays: od,
+    loadFactors: [...loadFactors],
+    equipmentRows: equipmentRows.filter(r => r.vals.some(v => v > 0.5)),
+    totalKwh, gasUse,
+    nightUse, iceDayUse, generalUse,
+    monthlyIceBase, monthlyGenBase,
+    monthlyNightCost, monthlyIceDayCost, monthlyGenCost,
+    monthlyUseCost, monthlyBase, monthlyPreVat, monthlyVat, monthlyElec,
+    monthlyGasUseCost, monthlyGasVat, monthlyGasTotal,
+    monthlyCombined,
+    totalElecKwh, totalGasNm3, totalElec, totalGas, totalAll,
+    gr
+  };
+}
+
+function resetDefaults() {
+  state.iceCount = 2; state.normalCount = 2; state.heatCount = 2;
+  state.opPattern = 'office';
+  document.querySelector('input[name="opPattern"][value="office"]').checked = true;
+  document.getElementById('fixedDaysRow').style.display = 'none';
+  document.querySelectorAll('.count-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('.count-btn[data-target="iceCount"][data-val="2"]').classList.add('active');
+  document.querySelector('.count-btn[data-target="normalCount"][data-val="2"]').classList.add('active');
+  document.querySelector('.count-btn[data-target="heatCount"][data-val="2"]').classList.add('active');
+  const defaults = {
+    fixedDays: 20, dayHours: 10, nightHours: 10, storageRatio: 45,
+    iceTurboDay: 216.1, iceTurboNight: 186.9, iceCT: 45,
+    brinePump: 18.5, iceCWP: 37, iceCHWP: 30,
+    normalTurbo: 206.7, normalCT: 22.5, normalCWP: 18.5, normalCHWP: 11,
+    boilerElec: 18, boilerGas: 194.3, heatPump: 7.5,
+    gasHeat: 43.54,
+    rateNight: 71.9, rateIceDay: 115.1, rateBaseIce: 7160, rateMinIce: 710
+  };
+  for (const [k,v] of Object.entries(defaults)) {
+    const el = document.getElementById(k);
+    if (el) el.value = v;
+  }
+  document.getElementById('tierSelect').value = '고압A 선택Ⅱ';
+  updateTierInfo();
+  applyTierToField();
+  buildGasGrid();
+  loadFactors = [...defaultLoadFactors];
+  renderChartBars();
+  buildChartValues();
+  attachAllListeners();
+  calculate();
+}
+
+function attachAllListeners() {
+  document.querySelectorAll('.panel.input-panel input[type=number]').forEach(el => {
+    if (el.classList.contains('cv-input')) return;
+    el.removeEventListener('input', calculate);
+    el.addEventListener('input', calculate);
+  });
+}
+
+/* ===== Excel Download ===== */
+function tableToAOA(tableId) {
+  const tbl = document.querySelector('#' + tableId + ' table');
+  if (!tbl) return [];
+  const aoa = [];
+  tbl.querySelectorAll('tr').forEach(tr => {
+    const row = [];
+    tr.querySelectorAll('th, td').forEach(cell => {
+      const text = cell.textContent.trim();
+      const cleaned = text.replace(/,/g, '').replace(/\s/g, '');
+      const n = parseFloat(cleaned);
+      if (!isNaN(n) && /^-?[0-9.,\s]+$/.test(text)) {
+        row.push(n);
+      } else if (text === '-') {
+        row.push(0);
+      } else {
+        row.push(text);
+      }
+    });
+    aoa.push(row);
+  });
+  return aoa;
+}
+
+function makeSheetFromTable(tableId) {
+  const aoa = tableToAOA(tableId);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Add SUM formulas in 연간 합계 column (col N, index 13)
+  for (let r = 1; r < aoa.length; r++) {
+    const cellRef = XLSX.utils.encode_cell({ c: 13, r: r });
+    ws[cellRef] = { t: 'n', f: `SUM(B${r+1}:M${r+1})`, z: '#,##0' };
+  }
+  // Number format for B~M columns
+  for (let r = 1; r < aoa.length; r++) {
+    for (let c = 1; c <= 12; c++) {
+      const ref = XLSX.utils.encode_cell({ c, r });
+      if (ws[ref] && typeof ws[ref].v === 'number') {
+        ws[ref].z = '#,##0';
+      }
+    }
+  }
+  ws['!cols'] = [{wch: 32}, ...Array(12).fill({wch: 11}), {wch: 15}];
+  return ws;
+}
+
+function makeInputSheet() {
+  if (!latestCalc) calculate();
+  const c = latestCalc;
+  const patName = state.opPattern === 'office' ? '오피스 (평일만)' : state.opPattern === 'commercial' ? '상업시설 (전일)' : '일괄기입';
+  const data = [
+    ['빙축열 시스템 운전비 자동계산 — 입력 데이터'],
+    ['생성일', new Date().toLocaleString('ko-KR')],
+    [],
+    ['【 1. 운전 조건 】'],
+    ['항목', '값', '단위'],
+    ['운전 패턴', patName, ''],
+    ['일 운전시간 (주간)', c.inputs.dayHours, 'h'],
+    ['야간 축냉 운전시간', c.inputs.nightHours, 'h'],
+    ['축열조 용량비율 (α)', c.inputs.alpha * 100, '%'],
+    ['연간 총 운전일수', c.monthlyDays.reduce((a,b)=>a+b,0), '일'],
+    [],
+    ['【 2. 냉방 장비 (대당 동력 × 대수) 】'],
+    ['장비명', '대당 동력', '대수', '총 동력', '단위'],
+    ['냉동기(빙축열용, 주간)', c.inputs.iceTurboDay, c.iceN, c.inputs.iceTurboDay * c.iceN, 'kW'],
+    ['냉동기(빙축열용, 야간)', c.inputs.iceTurboNight, c.iceN, c.inputs.iceTurboNight * c.iceN, 'kW'],
+    ['냉각탑(빙축열용)', c.inputs.iceCT, c.iceN, c.inputs.iceCT * c.iceN, 'kW'],
+    ['펌프(브라인 순환)', c.inputs.brinePump, c.iceN, c.inputs.brinePump * c.iceN, 'kW'],
+    ['펌프(냉각수, 빙축열용)', c.inputs.iceCWP, c.iceN, c.inputs.iceCWP * c.iceN, 'kW'],
+    ['펌프(냉수, 빙축열용)', c.inputs.iceCHWP, c.iceN, c.inputs.iceCHWP * c.iceN, 'kW'],
+    ['냉동기(상온용)', c.inputs.normalTurbo, c.normN, c.inputs.normalTurbo * c.normN, 'kW'],
+    ['냉각탑(상온용)', c.inputs.normalCT, c.normN, c.inputs.normalCT * c.normN, 'kW'],
+    ['펌프(냉각수, 상온용)', c.inputs.normalCWP, c.normN, c.inputs.normalCWP * c.normN, 'kW'],
+    ['펌프(냉수, 상온용)', c.inputs.normalCHWP, c.normN, c.inputs.normalCHWP * c.normN, 'kW'],
+    [],
+    ['【 3. 난방 장비 (대당 × 대수) 】'],
+    ['보일러(난방용, 전기)', c.inputs.boilerElec, c.heatN, c.inputs.boilerElec * c.heatN, 'kW'],
+    ['보일러(난방용, 가스)', c.inputs.boilerGas, c.heatN, c.inputs.boilerGas * c.heatN, 'N㎥/h'],
+    ['펌프(난방 순환)', c.inputs.heatPump, c.heatN, c.inputs.heatPump * c.heatN, 'kW'],
+    [],
+    ['【 4. 전기 요금 】'],
+    ['일반전기 종류', c.tier, ''],
+    ['일반전기 기본요금', c.t.base, '원/kW'],
+    ['일반전기 사용요금(여름철 중간부하)', c.t.summer, '원/kWh'],
+    ['일반전기 사용요금(봄·가을철 중간부하)', c.t.spring, '원/kWh'],
+    ['일반전기 사용요금(겨울철 중간부하)', c.t.winter, '원/kWh'],
+    ['심야전기 사용요금(야간)', c.rateNight, '원/kWh'],
+    ['심야전기 사용요금(주간)', c.rateIceDay, '원/kWh'],
+    ['일반전기 사용요금 (적용값)', c.rateGeneral, '원/kWh'],
+    ['심야전기 기본요금', c.rateBaseIce, '원/kW'],
+    ['심야전기 최저요금', c.rateMinIce, '원/kW'],
+    [],
+    ['【 5. 가스 요금 】'],
+    ['가스 발열량', c.gasHeat, 'MJ/N㎥'],
+    ['월별 가스 단가 (원/MJ)', ''],
+    ['1월', c.gr[0]], ['2월', c.gr[1]], ['3월', c.gr[2]], ['4월', c.gr[3]],
+    ['5월', c.gr[4]], ['6월', c.gr[5]], ['7월', c.gr[6]], ['8월', c.gr[7]],
+    ['9월', c.gr[8]], ['10월', c.gr[9]], ['11월', c.gr[10]], ['12월', c.gr[11]],
+    [],
+    ['【 6. 월별 운전율 (%) 】'],
+    [...months, '평균'],
+    [...c.loadFactors, Math.round(c.loadFactors.reduce((a,b)=>a+b,0)/12*10)/10],
+    [],
+    ['【 7. 월별 운전일수 】'],
+    [...months, '연합계'],
+    [...c.monthlyDays, c.monthlyDays.reduce((a,b)=>a+b,0)]
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch: 32}, {wch: 14}, {wch: 10}, {wch: 14}, {wch: 8}];
+  return ws;
+}
+
+function makeSummarySheet() {
+  if (!latestCalc) calculate();
+  const c = latestCalc;
+  const data = [
+    ['빙축열 시스템 운전비 — 요약 결과'],
+    ['생성일', new Date().toLocaleString('ko-KR')],
+    [],
+    ['항목', '값', '단위'],
+    ['연간 전기 사용량', c.totalElecKwh, 'kWh'],
+    ['  - 야간(심야) 사용량', c.nightUse.reduce((a,b)=>a+b,0), 'kWh'],
+    ['  - 주간 빙축열 사용량', c.iceDayUse.reduce((a,b)=>a+b,0), 'kWh'],
+    ['  - 일반(상온/난방) 사용량', c.generalUse.reduce((a,b)=>a+b,0), 'kWh'],
+    ['연간 가스 사용량', c.totalGasNm3, 'N㎥'],
+    [],
+    ['연간 전기료', c.totalElec, '원'],
+    ['연간 가스료', c.totalGas, '원'],
+    ['연간 총 운전비', c.totalAll, '원'],
+    ['월 평균 운전비', c.totalAll/12, '원'],
+    [],
+    ['【 비율 분석 】'],
+    ['전기료 비중', c.totalElec/c.totalAll, ''],
+    ['가스료 비중', c.totalGas/c.totalAll, '']
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  // Formulas (set after aoa conversion)
+  ws['B13'] = { t: 'n', f: 'B11+B12', z: '#,##0' };
+  ws['B14'] = { t: 'n', f: 'B13/12', z: '#,##0' };
+  ws['B17'] = { t: 'n', f: 'B11/B13', z: '0.00%' };
+  ws['B18'] = { t: 'n', f: 'B12/B13', z: '0.00%' };
+  // Number formats
+  ['B5','B6','B7','B8','B9','B11','B12'].forEach(ref => {
+    if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
+  });
+  ws['!cols'] = [{wch: 28}, {wch: 18}, {wch: 8}];
+  return ws;
+}
+
+function downloadExcel() {
+  try {
+    if (!latestCalc) calculate();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, makeSummarySheet(), '요약');
+    XLSX.utils.book_append_sheet(wb, makeInputSheet(), '입력 데이터');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('elecUseTable'), 'A. 월별 전기사용량');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('gasUseTable'),  'B. 월별 가스사용량');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('elecCostTable'),'C. 월별 전기료');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('gasCostTable'), 'D. 월별 가스료');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('totalCostTable'),'E. 운전비 종합');
+    const ts = new Date();
+    const fname = `빙축열_운전비_${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}.xlsx`;
+    XLSX.writeFile(wb, fname);
+  } catch (e) {
+    alert('엑셀 다운로드 중 오류: ' + e.message);
+  }
+}
+
+/* ===== PDF Download (A4 landscape, A~E only, single page) ===== */
+async function downloadPDF() {
+  // Library availability check
+  if (typeof html2canvas === 'undefined') {
+    alert('html2canvas 라이브러리 로드 실패 — 인터넷 연결을 확인해 주세요.');
+    return;
+  }
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    alert('jsPDF 라이브러리 로드 실패 — 인터넷 연결을 확인해 주세요.');
+    return;
+  }
+  if (!latestCalc) calculate();
+
+  const c = latestCalc;
+  const ts = new Date();
+  const yyyy = ts.getFullYear();
+  const mm = String(ts.getMonth()+1).padStart(2,'0');
+  const dd = String(ts.getDate()).padStart(2,'0');
+  const fname = `빙축열_운전비_${yyyy}${mm}${dd}.pdf`;
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+
+  // Build capture wrap
+  const src = document.getElementById('pdfContent');
+  const wrap = document.createElement('div');
+  wrap.className = 'pdf-capture';
+  // Position off-screen but in normal flow rendering
+  wrap.style.position = 'absolute';
+  wrap.style.left = '-20000px';
+  wrap.style.top = '0';
+  wrap.style.zIndex = '-1';
+
+  const patName = state.opPattern === 'office' ? '오피스(평일)' : state.opPattern === 'commercial' ? '상업시설(전일)' : '일괄기입';
+  wrap.innerHTML =
+    `<div class="pdf-title">` +
+      `빙축열 시스템 운전비 자동계산` +
+      `<div class="meta">` +
+        `${dateStr} · ${patName} · ${c.tier} · 빙축열 ${c.iceN}대 / 상온 ${c.normN}대 / 난방 ${c.heatN}대 · ` +
+        `연간 총 운전비 <b>${(c.totalAll/1e8).toFixed(2)}억원</b> ` +
+        `(전기 ${(c.totalElec/1e8).toFixed(2)}억 + 가스 ${(c.totalGas/1e8).toFixed(2)}억)` +
+      `</div>` +
+    `</div>` +
+    src.innerHTML;
+
+  document.body.appendChild(wrap);
+
+  try {
+    // Allow layout to settle (two RAFs)
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const canvas = await html2canvas(wrap, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+      windowWidth: wrap.scrollWidth,
+      windowHeight: wrap.scrollHeight
+    });
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
+    const pageW = 297, pageH = 210;
+    const margin = 4;
+    const availW = pageW - margin * 2;   // 289
+    const availH = pageH - margin * 2;   // 202
+
+    // Scale image to fit available area while preserving aspect ratio.
+    // Force single page: pick whichever scale (width-fit / height-fit) keeps both dims ≤ available.
+    const cwMm = (canvas.width / canvas.height) * availH;     // width if scaled to availH
+    const chMm = (canvas.height / canvas.width) * availW;     // height if scaled to availW
+    let imgW, imgH;
+    if (chMm <= availH) {
+      // Width-fit works
+      imgW = availW; imgH = chMm;
+    } else {
+      // Need to height-fit
+      imgH = availH; imgW = cwMm;
+    }
+
+    const x = (pageW - imgW) / 2;
+    const y = (pageH - imgH) / 2;
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    pdf.addImage(imgData, 'JPEG', x, y, imgW, imgH);
+    pdf.save(fname);
+  } catch (e) {
+    console.error('PDF generation error:', e);
+    alert('PDF 다운로드 중 오류: ' + e.message);
+  } finally {
+    if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+  }
+}
+
+// Initialization
+buildGasGrid();
+buildTierSelect();
+updateTierInfo();
+attachCountButtons();
+attachRadios();
+renderChartBars();
+buildChartValues();
+attachChartEvents();
+attachAllListeners();
+calculate();
+</script>
+</body>
+</html>
