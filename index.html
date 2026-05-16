@@ -2,14 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>빙축열 시스템 운전비 자동계산</title>
+<title>냉난방 시스템 운전비 자동계산 (빙축열 vs 흡수식)</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root {
-  /* Primary blues — softer & balanced */
   --primary: #2563eb;
   --primary-light: #3b82f6;
   --primary-lighter: #93c5fd;
@@ -18,24 +17,29 @@
   --primary-dark: #1d4ed8;
   --primary-darker: #1e3a8a;
 
-  /* Teal / cyan accent (메인 블루와 어울리는 보조색) */
   --accent: #0891b2;
   --accent-light: #06b6d4;
   --accent-bg: #ecfeff;
   --accent-bg-2: #cffafe;
   --accent-text: #0e7490;
 
-  /* Amber (softer than orange) — 소계 강조 */
+  /* 흡수식 (warm) palette */
+  --warm: #ea580c;
+  --warm-light: #f97316;
+  --warm-lighter: #fdba74;
+  --warm-bg: #fff7ed;
+  --warm-bg-2: #ffedd5;
+  --warm-dark: #c2410c;
+  --warm-darker: #9a3412;
+
   --orange-bg: #fffbeb;
   --orange-mid: #fde68a;
   --orange-text: #b45309;
 
-  /* Emerald — 합계 / 성공 */
   --green-bg: #ecfdf5;
   --green-mid: #a7f3d0;
   --green-text: #047857;
 
-  /* Slate neutrals — 깨끗한 회색 톤 */
   --gray-50: #f8fafc;
   --gray-100: #f1f5f9;
   --gray-200: #e2e8f0;
@@ -59,6 +63,63 @@ html, body {
 }
 body { padding: 18px; }
 
+/* === Top Navigation Tabs === */
+.topnav {
+  max-width: 1700px;
+  margin: 0 auto 14px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid var(--gray-200);
+}
+.topnav button {
+  flex: 1;
+  padding: 12px 18px;
+  border: none;
+  background: transparent;
+  color: var(--gray-600);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  letter-spacing: -0.2px;
+}
+.topnav button:hover { background: var(--gray-100); color: var(--gray-800); }
+.topnav button.active[data-tab="ice"] {
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 55%, #0891b2 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+.topnav button.active[data-tab="abs"] {
+  background: linear-gradient(135deg, #c2410c 0%, #ea580c 55%, #f59e0b 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.25);
+}
+.topnav button.active[data-tab="cmp"] {
+  background: linear-gradient(135deg, #14532d 0%, #047857 55%, #10b981 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(4, 120, 87, 0.25);
+}
+.topnav .badge-tag {
+  font-size: 10px;
+  padding: 2px 7px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
 /* Header */
 .header {
   max-width: 1700px;
@@ -68,6 +129,14 @@ body { padding: 18px; }
   color: white;
   border-radius: 12px;
   box-shadow: 0 3px 10px rgba(37, 99, 235, 0.15);
+}
+.header.warm {
+  background: linear-gradient(135deg, #9a3412 0%, #ea580c 55%, #f59e0b 100%);
+  box-shadow: 0 3px 10px rgba(234, 88, 12, 0.18);
+}
+.header.cmp {
+  background: linear-gradient(135deg, #14532d 0%, #047857 55%, #10b981 100%);
+  box-shadow: 0 3px 10px rgba(4, 120, 87, 0.18);
 }
 .header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.6px; }
 .header .subtitle { margin: 6px 0 0; font-size: 12.5px; opacity: 0.92; letter-spacing: -0.2px; }
@@ -88,10 +157,7 @@ body { padding: 18px; }
   margin: 0 auto;
   transition: grid-template-columns 0.25s ease;
 }
-.container.collapsed {
-  grid-template-columns: 1fr;
-  gap: 0;
-}
+.container.collapsed { grid-template-columns: 1fr; gap: 0; }
 .container.collapsed .panel.input-panel { display: none; }
 
 .panel {
@@ -109,31 +175,32 @@ body { padding: 18px; }
 }
 .panel.output-panel { padding: 22px 26px; min-width: 0; }
 
-/* Accordion sections */
+/* Sections */
 .section { border-bottom: 1px solid var(--gray-200); }
 .section:last-of-type { border-bottom: none; }
 .section-header {
   cursor: pointer;
   padding: 14px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   user-select: none;
   transition: background 0.15s;
 }
 .section-header:hover { background: var(--primary-bg); }
+.warm-theme .section-header:hover { background: var(--warm-bg); }
 .section.no-collapse .section-header { cursor: default; }
 .section.no-collapse .section-header:hover { background: white; }
 .section-title {
   font-weight: 600; font-size: 13.5px; color: var(--primary-dark);
   letter-spacing: -0.2px; display: flex; align-items: center;
 }
+.warm-theme .section-title { color: var(--warm-darker); }
 .section-title .num {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px;
   background: var(--primary); color: white; border-radius: 50%;
   margin-right: 10px; font-size: 11px; font-weight: 700;
 }
+.warm-theme .section-title .num { background: var(--warm); }
 .section-toggle {
   font-size: 11px; color: var(--gray-400);
   transition: transform 0.2s; line-height: 1;
@@ -147,14 +214,11 @@ body { padding: 18px; }
   transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.2s;
   opacity: 1;
 }
-.section.collapsed .section-content {
-  max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0;
-}
+.section.collapsed .section-content { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
 
 /* Inputs */
 .input-row {
-  display: grid;
-  grid-template-columns: 1fr 110px 56px;
+  display: grid; grid-template-columns: 1fr 110px 56px;
   align-items: center;
   margin-bottom: 7px; gap: 8px;
 }
@@ -171,9 +235,11 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   outline: none; border-color: var(--primary-light);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
-.input-row input[readonly] {
-  background: var(--gray-100); color: var(--gray-500); cursor: not-allowed;
+.warm-theme .input-row input[type=number]:focus, .warm-theme select:focus {
+  border-color: var(--warm-light);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
 }
+.input-row input[readonly] { background: var(--gray-100); color: var(--gray-500); cursor: not-allowed; }
 .input-row .unit { font-size: 11px; color: var(--gray-500); font-weight: 500; }
 
 /* Radios */
@@ -190,9 +256,14 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
 .radio-option input[type=radio]:checked + label {
   background: var(--primary); color: white; border-color: var(--primary); font-weight: 600;
 }
+.warm-theme .radio-option input[type=radio]:checked + label {
+  background: var(--warm); border-color: var(--warm);
+}
 .radio-option input[type=radio]:checked + label small { color: rgba(255,255,255,0.8); }
 .radio-option label:hover { background: var(--primary-bg); }
+.warm-theme .radio-option label:hover { background: var(--warm-bg); }
 .radio-option input[type=radio]:checked + label:hover { background: var(--primary); }
+.warm-theme .radio-option input[type=radio]:checked + label:hover { background: var(--warm); }
 
 /* Count buttons */
 .count-group { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
@@ -205,7 +276,9 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   font-size: 11.5px; font-family: inherit; font-weight: 500; padding: 0 8px;
 }
 .count-btn:hover { background: var(--primary-bg); }
+.warm-theme .count-btn:hover { background: var(--warm-bg); }
 .count-btn.active { background: var(--primary); color: white; border-color: var(--primary); font-weight: 700; }
+.warm-theme .count-btn.active { background: var(--warm); border-color: var(--warm); }
 
 /* Equipment block */
 .equip-block {
@@ -218,7 +291,6 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.4px;
 }
 
-/* Tier info */
 .tier-info {
   background: var(--primary-bg); padding: 10px 12px;
   border-radius: 6px; font-size: 11px; color: var(--gray-700);
@@ -226,6 +298,8 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   border-left: 3px solid var(--primary-light);
 }
 .tier-info strong { color: var(--primary-dark); font-weight: 700; }
+.warm-theme .tier-info { background: var(--warm-bg); border-left-color: var(--warm-light); }
+.warm-theme .tier-info strong { color: var(--warm-darker); }
 
 .note-text { font-size: 11px; color: var(--gray-500); margin: 4px 0 8px; line-height: 1.55; }
 .op-days-display {
@@ -235,6 +309,33 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   border-left: 3px solid var(--green-text);
 }
 .op-days-display strong { color: var(--green-text); }
+
+/* AI checkbox styling */
+.ai-toggle {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  padding: 14px 16px; border-radius: 8px;
+  display: flex; align-items: center; gap: 12px;
+  color: white; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.18);
+  transition: all 0.2s;
+}
+.ai-toggle:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(124, 58, 237, 0.28); }
+.ai-toggle input[type=checkbox] {
+  width: 22px; height: 22px; cursor: pointer; accent-color: #f59e0b;
+}
+.ai-toggle .ai-title { font-size: 13px; font-weight: 700; letter-spacing: -0.2px; flex: 1; }
+.ai-toggle .ai-desc { font-size: 10.5px; opacity: 0.92; margin-top: 2px; font-weight: 500; }
+.ai-toggle.active {
+  background: linear-gradient(135deg, #6d28d9 0%, #9333ea 50%, #ec4899 100%);
+  box-shadow: 0 3px 12px rgba(147, 51, 234, 0.4);
+}
+.ai-toggle .saving-badge {
+  background: rgba(254, 243, 199, 0.95);
+  color: #9a3412;
+  font-size: 11px; font-weight: 700;
+  padding: 4px 9px; border-radius: 10px;
+  white-space: nowrap;
+}
 
 /* Gas grid */
 .month-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 6px; }
@@ -251,10 +352,7 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
 .month-input-cell.heating input { background: #fff7ed; }
 
 /* Bar chart */
-.chart-container {
-  background: white; border: 1px solid var(--gray-200);
-  border-radius: 6px; padding: 14px 12px 10px;
-}
+.chart-container { background: white; border: 1px solid var(--gray-200); border-radius: 6px; padding: 14px 12px 10px; }
 .chart-svg { width: 100%; height: 200px; cursor: crosshair; display: block; }
 .chart-svg .bar { transition: opacity 0.12s; }
 .chart-svg .bar:hover { opacity: 0.75; }
@@ -284,28 +382,34 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
 .chart-legend .hint { color: var(--gray-400); font-style: italic; margin-left: auto; }
 
 /* Reset button */
-.reset-btn-wrap { padding: 12px 20px 16px; }
+.reset-btn-wrap { padding: 12px 20px 16px; display: flex; gap: 8px; }
 .reset-btn {
-  width: 100%; padding: 10px; background: white; color: var(--gray-700);
+  flex: 1; padding: 10px; background: white; color: var(--gray-700);
   border: 1px solid var(--gray-300); border-radius: 6px; cursor: pointer;
   font-family: inherit; font-size: 12px; font-weight: 600; transition: all 0.15s;
 }
 .reset-btn:hover { background: var(--gray-100); border-color: var(--gray-400); }
+.sync-btn {
+  flex: 1; padding: 10px; color: var(--green-text);
+  background: var(--green-bg); border: 1px solid var(--green-mid);
+  border-radius: 6px; cursor: pointer; font-family: inherit;
+  font-size: 12px; font-weight: 600; transition: all 0.15s;
+}
+.sync-btn:hover { background: var(--green-mid); }
 
 /* Output panel header */
-.output-header {
-  display: flex; align-items: center; gap: 12px;
-  margin-bottom: 18px; flex-wrap: wrap;
-}
+.output-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .output-header h2 {
   flex: 1; margin: 0; color: var(--primary-dark);
   font-size: 17px; font-weight: 700; letter-spacing: -0.4px;
   display: flex; align-items: center; gap: 8px;
 }
+.warm-theme .output-header h2 { color: var(--warm-darker); }
 .output-header h2::before {
   content: ''; width: 4px; height: 18px;
   background: var(--primary); border-radius: 2px;
 }
+.warm-theme .output-header h2::before { background: var(--warm); }
 .toggle-input-btn {
   padding: 7px 12px; background: var(--gray-100); color: var(--gray-700);
   border: 1px solid var(--gray-300); border-radius: 6px;
@@ -313,6 +417,7 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   display: flex; align-items: center; gap: 5px;
 }
 .toggle-input-btn:hover { background: var(--primary-bg); border-color: var(--primary-light); color: var(--primary); }
+.warm-theme .toggle-input-btn:hover { background: var(--warm-bg); border-color: var(--warm-light); color: var(--warm); }
 .toggle-input-btn .icon { font-size: 13px; transition: transform 0.2s; }
 .container.collapsed .toggle-input-btn .icon { transform: rotate(180deg); }
 .action-buttons { display: flex; gap: 8px; }
@@ -335,12 +440,14 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   padding-bottom: 6px; border-bottom: 1.5px solid var(--primary-lighter);
   display: flex; align-items: center; gap: 6px;
 }
+.warm-theme .output-panel h3 { border-bottom-color: var(--warm-lighter); }
 .output-panel h3 .h3-num {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; background: var(--primary-bg-2);
   color: var(--primary-darker); font-size: 10px; font-weight: 700;
   border-radius: 4px;
 }
+.warm-theme .output-panel h3 .h3-num { background: var(--warm-bg-2); color: var(--warm-darker); }
 
 /* Summary cards */
 .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 4px; }
@@ -354,20 +461,28 @@ select.tier-select { text-align: left; width: 100%; margin-bottom: 6px; }
   font-size: 20px; font-weight: 700; color: var(--primary-dark);
   letter-spacing: -0.4px; font-feature-settings: "tnum" 1;
 }
+.warm-theme .card .card-value { color: var(--warm-darker); }
 .card .card-sub { font-size: 10.5px; color: var(--gray-500); margin-top: 5px; }
 .card.elec { border-top: 3px solid var(--primary-light); }
 .card.gas { border-top: 3px solid #64748b; }
 .card.split { border-top: 3px solid var(--accent-light); }
+.warm-theme .card.elec { border-top-color: var(--warm-light); }
+.warm-theme .card.gas { border-top-color: #64748b; }
+.warm-theme .card.split { border-top-color: #f59e0b; }
 .card.grand {
   background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
   color: white; border: none;
   box-shadow: 0 2px 8px rgba(8, 145, 178, 0.18);
 }
+.warm-theme .card.grand {
+  background: linear-gradient(135deg, #c2410c 0%, #f59e0b 100%);
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.22);
+}
 .card.grand .card-label { color: rgba(255,255,255,0.95); }
 .card.grand .card-value { color: white; font-size: 22px; }
 .card.grand .card-sub { color: rgba(255,255,255,0.88); }
 
-/* Tables — REDESIGNED */
+/* Tables */
 .table-wrap {
   border: 1px solid var(--gray-200);
   border-radius: 8px; overflow: hidden;
@@ -396,15 +511,22 @@ table.result thead th {
   letter-spacing: -0.1px;
   border-bottom: 2px solid var(--primary-light);
 }
+.warm-theme table.result thead th {
+  background: var(--warm-bg); color: var(--warm-darker);
+  border-bottom-color: var(--warm-light);
+}
 table.result thead th.row-head {
   background: var(--primary-bg-2);
   color: var(--primary-darker);
   text-align: left; padding-left: 12px;
 }
+.warm-theme table.result thead th.row-head {
+  background: var(--warm-bg-2); color: var(--warm-darker);
+}
 table.result thead th.sum-col {
-  background: #ffedd5;     /* orange-100 — 연간합계 열 헤더 */
-  color: #9a3412;          /* orange-800 */
-  border-bottom: 2px solid #fb923c;  /* orange-400 */
+  background: #ffedd5;
+  color: #9a3412;
+  border-bottom: 2px solid #fb923c;
 }
 table.result td.row-head {
   background: var(--gray-50); color: var(--gray-800);
@@ -412,32 +534,37 @@ table.result td.row-head {
   padding-left: 12px;
 }
 table.result tbody tr:hover td:not(.sum-col):not(.row-head) { background: var(--primary-bg); }
+.warm-theme table.result tbody tr:hover td:not(.sum-col):not(.row-head) { background: var(--warm-bg); }
 table.result tbody tr:hover td.row-head { background: var(--primary-bg-2); }
+.warm-theme table.result tbody tr:hover td.row-head { background: var(--warm-bg-2); }
 table.result tbody tr:hover td.sum-col { background: #ffedd5; }
 
 table.result tr.total td {
-  background: #dcfce7;     /* green-100 — 합계 행 */
-  color: #166534;          /* green-800 */
+  background: #dcfce7;
+  color: #166534;
   font-weight: 700;
-  border-top: 2px solid #22c55e;   /* green-500 강조선 */
+  border-top: 2px solid #22c55e;
 }
-table.result tr.total td.row-head {
-  background: #bbf7d0;     /* green-200 */
-  color: #14532d;          /* green-900 */
-}
+table.result tr.total td.row-head { background: #bbf7d0; color: #14532d; }
 table.result tr.total td.sum-col {
-  /* 합계 행 × 연간 합계 열 교차점 — 상단만 주황선 (하단은 일반 셀 보더) */
-  background: #fed7aa;     /* orange-200 */
-  color: #9a3412;
+  background: #fed7aa; color: #9a3412;
   border-top: 2px solid #fb923c;
 }
 table.result tr.total:hover td { background: #dcfce7 !important; }
 table.result tr.total:hover td.row-head { background: #bbf7d0 !important; }
 table.result tr.total:hover td.sum-col { background: #fed7aa !important; }
 
+table.result tr.ai-saving td {
+  background: #faf5ff;
+  color: #6b21a8;
+  font-style: italic;
+}
+table.result tr.ai-saving td.row-head { background: #ede9fe; color: #581c87; font-style: normal; font-weight: 600; }
+table.result tr.ai-saving td.sum-col { background: #fef3c7; color: #92400e; font-weight: 700; font-style: normal; }
+
 table.result td.sum-col {
-  background: #fff7ed;     /* orange-50 — 매우 옅은 연간합계 열 */
-  color: #c2410c;          /* orange-700 */
+  background: #fff7ed;
+  color: #c2410c;
   font-weight: 700;
 }
 
@@ -451,9 +578,192 @@ table.result td.sum-col {
   .summary-cards { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* === Cell Hover Tooltip === */
+.cell-tooltip {
+  position: fixed;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: white;
+  padding: 12px 15px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-width: 400px;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.18);
+  opacity: 0;
+  transition: opacity 0.13s;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.cell-tooltip.show { opacity: 1; }
+.cell-tooltip .tt-title {
+  color: #93c5fd; font-weight: 700;
+  margin-bottom: 7px; font-size: 12px;
+  letter-spacing: -0.2px;
+  border-bottom: 1px solid rgba(147, 197, 253, 0.22);
+  padding-bottom: 5px;
+}
+.cell-tooltip.warm .tt-title { color: #fdba74; border-bottom-color: rgba(253, 186, 116, 0.22); }
+.cell-tooltip .tt-line { color: #cbd5e1; font-size: 11px; margin: 2.5px 0; display: flex; gap: 6px; }
+.cell-tooltip .tt-line .k { color: #fbbf24; flex-shrink: 0; min-width: 75px; }
+.cell-tooltip .tt-line .v { color: white; font-weight: 600; }
+.cell-tooltip .tt-sub { color: #94a3b8; font-size: 10.5px; padding-left: 81px; margin-top: -1px; }
+.cell-tooltip .tt-formula {
+  color: #fde68a; font-weight: 600;
+  margin-top: 7px; padding-top: 6px;
+  border-top: 1px dashed rgba(255,255,255,0.18);
+  font-size: 11px;
+}
+.cell-tooltip .tt-result {
+  color: #6ee7b7; font-weight: 800;
+  margin-top: 6px; font-size: 13px;
+  background: rgba(110, 231, 183, 0.10);
+  padding: 5px 9px; border-radius: 5px;
+  display: inline-block;
+  border-left: 2px solid #6ee7b7;
+}
+.cell-tooltip .tt-note {
+  color: #fca5a5; font-size: 10.5px;
+  margin-top: 5px; font-style: italic;
+}
+.cell-tooltip .tt-good {
+  color: #a78bfa; font-size: 10.5px;
+  margin-top: 5px; font-weight: 600;
+}
+table.result td[data-tip] { cursor: help; }
+table.result td[data-tip]:hover { outline: 2px solid #f59e0b; outline-offset: -2px; background: #fef3c7 !important; }
+table.result tr.total td[data-tip]:hover { background: #d9f99d !important; }
+table.result tr.ai-saving td[data-tip]:hover { background: #ede9fe !important; }
+
+/* === Comparison Page === */
+.cmp-grid {
+  max-width: 1700px; margin: 0 auto;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+.cmp-card {
+  background: white; border-radius: 10px;
+  padding: 22px 26px; border: 1px solid var(--gray-200);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.cmp-card.ice { border-top: 4px solid var(--primary); }
+.cmp-card.abs { border-top: 4px solid var(--warm); }
+.cmp-card h3 {
+  margin: 0 0 14px; font-size: 16px; font-weight: 700;
+  letter-spacing: -0.4px; display: flex; align-items: center; gap: 8px;
+}
+.cmp-card.ice h3 { color: var(--primary-dark); }
+.cmp-card.abs h3 { color: var(--warm-darker); }
+.cmp-row {
+  display: grid; grid-template-columns: 1fr auto;
+  padding: 9px 0; border-bottom: 1px dashed var(--gray-200);
+  font-size: 12.5px; align-items: center;
+}
+.cmp-row:last-child { border-bottom: none; }
+.cmp-row .lbl { color: var(--gray-700); font-weight: 500; }
+.cmp-row .val { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--gray-900); }
+.cmp-row.highlight { background: var(--gray-50); margin: 6px -10px; padding: 12px 10px; border-radius: 6px; border-bottom: none; }
+.cmp-row.highlight .lbl { color: var(--gray-800); font-weight: 700; font-size: 13px; }
+.cmp-row.highlight .val { font-size: 15px; color: var(--gray-900); }
+.cmp-row.grand {
+  background: linear-gradient(135deg, var(--primary-bg-2) 0%, var(--accent-bg-2) 100%);
+  margin: 10px -10px 0; padding: 16px 14px; border-radius: 8px;
+  border-bottom: none;
+}
+.cmp-card.abs .cmp-row.grand {
+  background: linear-gradient(135deg, var(--warm-bg-2) 0%, #ffedd5 100%);
+}
+.cmp-row.grand .lbl { font-size: 13.5px; font-weight: 700; color: var(--primary-darker); }
+.cmp-card.abs .cmp-row.grand .lbl { color: var(--warm-darker); }
+.cmp-row.grand .val { font-size: 19px; font-weight: 800; color: var(--primary-darker); }
+.cmp-card.abs .cmp-row.grand .val { color: var(--warm-darker); }
+.cmp-row.spacer { border-bottom: 1px dashed var(--gray-200); padding: 9px 0; }
+.cmp-row.spacer .lbl, .cmp-row.spacer .val { color: var(--gray-300); font-style: italic; font-weight: 400; }
+
+.cmp-verdict {
+  max-width: 1700px; margin: 16px auto;
+  padding: 26px 30px;
+  border-radius: 12px; color: white;
+  background: linear-gradient(135deg, #9a3412 0%, #ea580c 50%, #fb923c 100%);
+  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.22);
+  transition: background 0.4s, box-shadow 0.4s;
+}
+/* 흡수식 유리 (주황 계열, 강도별 5단계) */
+.cmp-verdict.abs-faint   { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 50%, #fdba74 100%); color: #7c2d12; box-shadow: 0 4px 10px rgba(234, 88, 12, 0.08); }
+.cmp-verdict.abs-light   { background: linear-gradient(135deg, #fdba74 0%, #fb923c 50%, #f97316 100%); color: #7c2d12; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15); }
+.cmp-verdict.abs-medium  { background: linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%); color: white;   box-shadow: 0 4px 14px rgba(234, 88, 12, 0.22); }
+.cmp-verdict.abs-strong  { background: linear-gradient(135deg, #c2410c 0%, #9a3412 50%, #7c2d12 100%); color: white;   box-shadow: 0 5px 18px rgba(154, 52, 18, 0.32); }
+.cmp-verdict.abs-deep    { background: linear-gradient(135deg, #7c2d12 0%, #5a1a0a 50%, #431407 100%); color: white;   box-shadow: 0 6px 22px rgba(67, 20, 7, 0.42); }
+/* 빙축열 유리 (파란 계열, 강도별 5단계) */
+.cmp-verdict.ice-faint   { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%); color: #1e3a8a; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.08); }
+.cmp-verdict.ice-light   { background: linear-gradient(135deg, #93c5fd 0%, #60a5fa 50%, #3b82f6 100%); color: #1e3a8a; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15); }
+.cmp-verdict.ice-medium  { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%); color: white;   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22); }
+.cmp-verdict.ice-strong  { background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 50%, #1e3a8a 100%); color: white;   box-shadow: 0 5px 18px rgba(30, 58, 138, 0.32); }
+.cmp-verdict.ice-deep    { background: linear-gradient(135deg, #1e3a8a 0%, #172554 50%, #0c1437 100%); color: white;   box-shadow: 0 6px 22px rgba(12, 20, 55, 0.42); }
+.cmp-verdict .vd-grid .vd-cell {
+  transition: background 0.3s;
+}
+.cmp-verdict.abs-faint .vd-cell, .cmp-verdict.ice-faint .vd-cell { background: rgba(255,255,255,0.55); color: inherit; }
+.cmp-verdict.abs-light .vd-cell, .cmp-verdict.ice-light .vd-cell { background: rgba(255,255,255,0.32); }
+.cmp-verdict .vd-strength-badge {
+  display: inline-block; margin-left: 12px; padding: 5px 12px;
+  background: rgba(255,255,255,0.22); border-radius: 20px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+  border: 1px solid rgba(255,255,255,0.35);
+  vertical-align: middle;
+}
+.cmp-verdict.abs-faint .vd-strength-badge, .cmp-verdict.ice-faint .vd-strength-badge {
+  background: rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.12);
+}
+.cmp-verdict h2 {
+  margin: 0 0 8px; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;
+}
+.cmp-verdict .vd-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 14px;
+}
+.cmp-verdict .vd-cell { background: rgba(255,255,255,0.13); padding: 14px 16px; border-radius: 8px; backdrop-filter: blur(4px); }
+.cmp-verdict .vd-cell .vd-lbl { font-size: 11.5px; opacity: 0.88; font-weight: 500; }
+.cmp-verdict .vd-cell .vd-val { font-size: 22px; font-weight: 800; margin-top: 4px; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; }
+.cmp-verdict .vd-cell .vd-sub { font-size: 11px; opacity: 0.85; margin-top: 3px; }
+
+.cmp-status-banner {
+  max-width: 1700px; margin: 0 auto 14px;
+  padding: 14px 20px; background: #fef3c7;
+  border: 1px solid #fcd34d; border-radius: 8px;
+  font-size: 12.5px; color: #78350f; font-weight: 500;
+}
+.cmp-status-banner b { color: #92400e; }
+
+.cmp-monthly-chart {
+  max-width: 1700px; margin: 16px auto;
+  background: white; border-radius: 12px;
+  padding: 24px 28px 20px; border: 1px solid var(--gray-200);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.cmp-monthly-chart h3 {
+  margin: 0 0 4px; font-size: 15.5px; font-weight: 700;
+  color: var(--gray-800); letter-spacing: -0.3px;
+}
+.cmp-monthly-chart .chart-subtitle {
+  font-size: 11.5px; color: var(--gray-500);
+  margin-bottom: 14px; letter-spacing: -0.1px;
+}
+.cmp-bar-chart-svg { width: 100%; height: 380px; display: block; }
+
+.cmp-monthly-table {
+  max-width: 1700px; margin: 16px auto;
+  background: white; border-radius: 10px;
+  padding: 22px 26px; border: 1px solid var(--gray-200);
+}
+.cmp-monthly-table h3 {
+  margin: 0 0 14px; font-size: 15px; font-weight: 700;
+  color: var(--gray-800); letter-spacing: -0.3px;
+}
+
 /* === PDF capture mode (A4 landscape 1-page fit) === */
 .pdf-capture {
-  width: 1080px;            /* render box; will be scaled to A4 landscape */
+  width: 1080px;
   padding: 14px 16px;
   background: white;
   font-family: 'Pretendard Variable', 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
@@ -471,13 +781,8 @@ table.result td.sum-col {
   border-radius: 4px;
   letter-spacing: -0.3px;
 }
-.pdf-capture .pdf-title .meta {
-  font-size: 10.5px;
-  font-weight: 500;
-  color: #4b5563;
-  margin-top: 2px;
-  letter-spacing: 0;
-}
+.pdf-capture .pdf-title.warm { color: #9a3412; background: #fff7ed; border-left-color: #f97316; }
+.pdf-capture .pdf-title .meta { font-size: 10.5px; font-weight: 500; color: #4b5563; margin-top: 2px; letter-spacing: 0; }
 .pdf-capture h3 {
   font-size: 11px !important;
   margin: 8px 0 3px !important;
@@ -487,6 +792,7 @@ table.result td.sum-col {
   font-weight: 700 !important;
   display: flex !important; align-items: center; gap: 5px;
 }
+.pdf-capture.warm h3 { border-bottom-color: #f97316 !important; }
 .pdf-capture h3 .h3-num {
   width: 15px !important; height: 15px !important;
   font-size: 9px !important;
@@ -495,11 +801,8 @@ table.result td.sum-col {
   border-radius: 3px;
   font-weight: 700;
 }
-.pdf-capture .table-wrap {
-  border: 1px solid #e5e7eb;
-  border-radius: 4px; overflow: hidden;
-  margin-bottom: 0;
-}
+.pdf-capture.warm h3 .h3-num { background: #ffedd5 !important; color: #9a3412 !important; }
+.pdf-capture .table-wrap { border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden; margin-bottom: 0; }
 .pdf-capture table.result { font-size: 9px !important; table-layout: fixed; width: 100%; border-collapse: collapse; }
 .pdf-capture table.result th, .pdf-capture table.result td {
   padding: 3px 4px !important;
@@ -511,7 +814,6 @@ table.result td.sum-col {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-/* PDF에서 데이터 셀(숫자)만 폰트 축소 — 구분/헤더 제외 */
 .pdf-capture table.result tbody td:not(.row-head) {
   font-size: 7.5px !important;
   padding: 2.5px 4px !important;
@@ -523,7 +825,9 @@ table.result td.sum-col {
   text-align: center; font-weight: 600;
   border-bottom: 1.5px solid #3b82f6 !important;
 }
+.pdf-capture.warm table.result thead th { background: #fff7ed !important; color: #9a3412 !important; border-bottom-color: #f97316 !important; }
 .pdf-capture table.result thead th.row-head { background: #dbeafe !important; text-align: left; color: #1e3a8a !important; }
+.pdf-capture.warm table.result thead th.row-head { background: #ffedd5 !important; color: #9a3412 !important; }
 .pdf-capture table.result thead th.sum-col { background: #ffedd5 !important; color: #9a3412 !important; border-bottom: 1.5px solid #fb923c !important; }
 .pdf-capture table.result td.row-head { background: #f8fafc; text-align: left; font-weight: 500; color: #1e293b; }
 .pdf-capture table.result tr.total td { background: #dcfce7; color: #166534; font-weight: 700; border-top: 1.5px solid #22c55e; }
@@ -537,22 +841,31 @@ table.result td.sum-col {
 </head>
 <body>
 
+<!-- ============ Top Navigation ============ -->
+<div class="topnav" id="topnav">
+  <button data-tab="ice" class="active">❄ 빙축열 시스템 + 보일러</button>
+  <button data-tab="abs">🔥 흡수식 냉온수기</button>
+  <button data-tab="cmp">📊 운전비 비교 분석<span class="badge-tag" id="cmpBadge">대기</span></button>
+</div>
+
+<!-- ============ TAB: 빙축열 ============ -->
+<div id="tab-ice" class="tab-content active">
+
 <div class="header">
-  <h1>빙축열 시스템 운전비 자동계산</h1>
+  <h1>빙축열 시스템 + 온수보일러 운전비 자동계산</h1>
   <div class="subtitle">발주처 제안용 · 심야전기(을)II + 일반전기(을) 요금체계 반영 · 축열조 운영 로직 적용</div>
   <div class="badges">
     <span class="badge">2026년 기준</span>
     <span class="badge">월별 운전부하 자동 반영</span>
-    <span class="badge accent">제안 검토용</span>
+    <span class="badge accent">제안 검토용 ALT-1</span>
   </div>
 </div>
 
-<div class="container" id="mainContainer">
+<div class="container" id="mainContainerIce">
 
 <!-- LEFT: Inputs -->
 <div class="panel input-panel">
 
-  <!-- 1. 운전 조건 -->
   <div class="section" id="sec1">
     <div class="section-header" onclick="toggleSection('sec1')">
       <div class="section-title"><span class="num">1</span>운전 조건</div>
@@ -575,7 +888,6 @@ table.result td.sum-col {
     </div>
   </div>
 
-  <!-- 2. 냉방 장비 동력 -->
   <div class="section" id="sec2">
     <div class="section-header" onclick="toggleSection('sec2')">
       <div class="section-title"><span class="num">2</span>냉방 장비 동력</div>
@@ -619,7 +931,6 @@ table.result td.sum-col {
     </div>
   </div>
 
-  <!-- 3. 난방 장비 동력 -->
   <div class="section" id="sec3">
     <div class="section-header" onclick="toggleSection('sec3')">
       <div class="section-title"><span class="num">3</span>난방 장비 동력</div>
@@ -643,7 +954,6 @@ table.result td.sum-col {
     </div>
   </div>
 
-  <!-- 4. 가스 요금 -->
   <div class="section" id="sec4">
     <div class="section-header" onclick="toggleSection('sec4')">
       <div class="section-title"><span class="num">4</span>가스 요금</div>
@@ -658,7 +968,6 @@ table.result td.sum-col {
     </div>
   </div>
 
-  <!-- 5. 전기 요금 단가 -->
   <div class="section" id="sec5">
     <div class="section-header" onclick="toggleSection('sec5')">
       <div class="section-title"><span class="num">5</span>전기 요금 단가</div>
@@ -676,7 +985,6 @@ table.result td.sum-col {
     </div>
   </div>
 
-  <!-- 6. 월별 운전율 -->
   <div class="section no-collapse" id="sec6">
     <div class="section-header">
       <div class="section-title"><span class="num">6</span>월별 운전율 (%)</div>
@@ -695,20 +1003,20 @@ table.result td.sum-col {
   </div>
 
   <div class="reset-btn-wrap">
-    <button class="reset-btn" onclick="resetDefaults()">기본값으로 초기화</button>
+    <button class="reset-btn" onclick="iceResetDefaults()">기본값으로 초기화</button>
   </div>
 </div>
 
 <!-- RIGHT: Outputs -->
-<div class="panel output-panel" id="outputPanel">
+<div class="panel output-panel" id="outputPanelIce">
   <div class="output-header">
-    <button class="toggle-input-btn" onclick="toggleMainPanel()">
+    <button class="toggle-input-btn" onclick="toggleMainPanel('ice')">
       <span class="icon">◀</span><span class="label-text">입력 접기</span>
     </button>
     <h2>자동 계산 결과</h2>
     <div class="action-buttons">
-      <button class="action-btn excel" onclick="downloadExcel()">📊 엑셀 다운로드</button>
-      <button class="action-btn pdf" onclick="downloadPDF()">📄 PDF 다운로드</button>
+      <button class="action-btn excel" onclick="downloadExcelIce()">📊 엑셀 다운로드</button>
+      <button class="action-btn pdf" onclick="downloadPDFIce()">📄 PDF 다운로드</button>
     </div>
   </div>
 
@@ -754,10 +1062,294 @@ table.result td.sum-col {
 </div>
 
 </div>
+</div>
+<!-- ============ END TAB: 빙축열 ============ -->
+
+<!-- ============ TAB: 흡수식 냉온수기 ============ -->
+<div id="tab-abs" class="tab-content warm-theme">
+
+<div class="header warm">
+  <h1>흡수식 냉온수기 시스템 운전비 자동계산</h1>
+  <div class="subtitle">발주처 제안용 · 일반전기(을) 단일 요금체계 · 가스 직접 가열 (보일러 불필요)</div>
+  <div class="badges">
+    <span class="badge">2026년 기준</span>
+    <span class="badge">대온도차 시스템 / AI통합제어 옵션</span>
+    <span class="badge accent">제안 검토용 ALT-2</span>
+  </div>
+</div>
+
+<div class="container" id="mainContainerAbs">
+
+<!-- LEFT: Inputs -->
+<div class="panel input-panel">
+
+  <!-- 1. 운전 조건 -->
+  <div class="section" id="aSec1">
+    <div class="section-header" onclick="toggleSection('aSec1')">
+      <div class="section-title"><span class="num">1</span>운전 조건</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="note-text" style="margin-top:6px;">운전 패턴</div>
+      <div class="radio-group">
+        <div class="radio-option"><input type="radio" name="aOpPattern" id="aPatOffice" value="office" checked><label for="aPatOffice">오피스<small>평일만</small></label></div>
+        <div class="radio-option"><input type="radio" name="aOpPattern" id="aPatCommercial" value="commercial"><label for="aPatCommercial">상업시설<small>전일</small></label></div>
+        <div class="radio-option"><input type="radio" name="aOpPattern" id="aPatFixed" value="fixed"><label for="aPatFixed">일괄기입<small>사용자 지정</small></label></div>
+      </div>
+      <div class="input-row" id="aFixedDaysRow" style="display:none;">
+        <label>일괄 운전일수</label><input type="number" id="aFixedDays" value="20" step="1" min="1" max="31"><span class="unit">일/월</span>
+      </div>
+      <div class="input-row"><label>일 운전시간</label><input type="number" id="aDayHours" value="10" step="0.5"><span class="unit">h</span></div>
+      <div class="op-days-display" id="aOpDaysDisplay"></div>
+    </div>
+  </div>
+
+  <!-- 2. 흡수식 냉온수기 사양 -->
+  <div class="section" id="aSec2">
+    <div class="section-header" onclick="toggleSection('aSec2')">
+      <div class="section-title"><span class="num">2</span>흡수식 냉온수기 사양</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="count-group">
+        <div class="label">냉온수기 대수</div>
+        <div class="btn-group">
+          <button type="button" class="count-btn" data-atarget="absCount" data-val="1">1대</button>
+          <button type="button" class="count-btn active" data-atarget="absCount" data-val="2">2대</button>
+          <button type="button" class="count-btn" data-atarget="absCount" data-val="3">3대</button>
+          <button type="button" class="count-btn" data-atarget="absCount" data-val="4">4대</button>
+        </div>
+      </div>
+
+      <div class="equip-block">
+        <div class="equip-title">대당 설계 용량 (자동 가스 산출 기준)</div>
+        <div class="input-row"><label>대당 냉방용량</label><input type="number" id="aUSRT" value="500" step="10"><span class="unit">USRT</span></div>
+        <div class="input-row"><label>냉방 COP (이중효용)</label><input type="number" id="aCOP" value="0.98" step="0.01"><span class="unit">-</span></div>
+        <div class="input-row"><label>난방 효율 (η)</label><input type="number" id="aEtaHeat" value="92" step="1"><span class="unit">%</span></div>
+        <div class="input-row"><label>난방 정격용량비 (냉방 대비)</label><input type="number" id="aHeatRatio" value="100" step="1"><span class="unit">%</span></div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button type="button" class="reset-btn" style="padding:7px 10px;font-size:11.5px;" onclick="autoCalcAbsGas()">⚡ USRT 기준 가스소비량 자동산출</button>
+        </div>
+      </div>
+
+      <div class="equip-block">
+        <div class="equip-title">대당 정격 가스 소비량 (직접입력 또는 자동산출)</div>
+        <div class="input-row"><label>가스 소비량 (냉방)</label><input type="number" id="aGasCool" value="296.6" step="0.1"><span class="unit">N㎥/h</span></div>
+        <div class="input-row"><label>가스 소비량 (난방)</label><input type="number" id="aGasHeatRate" value="342.8" step="0.1"><span class="unit">N㎥/h</span></div>
+      </div>
+
+      <div class="equip-block">
+        <div class="equip-title">대당 보조 전력 (kW)</div>
+        <div class="input-row"><label>흡수식 본체 (냉방)</label><input type="number" id="aAuxCool" value="20" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>흡수식 본체 (난방)</label><input type="number" id="aAuxHeat" value="21.2" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>냉각탑 (냉방용)</label><input type="number" id="aCT" value="88" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(냉각수 순환)</label><input type="number" id="aCWP" value="60" step="0.1"><span class="unit">kW</span></div>
+        <div class="input-row"><label>펌프(냉온수 순환)</label><input type="number" id="aCHWP" value="60" step="0.1"><span class="unit">kW</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. AI통합제어 시스템 -->
+  <div class="section no-collapse" id="aSec3">
+    <div class="section-header">
+      <div class="section-title"><span class="num">3</span>AI통합제어 시스템</div>
+    </div>
+    <div class="section-content">
+      <label class="ai-toggle" id="aAiToggle" for="aAiCheckbox">
+        <input type="checkbox" id="aAiCheckbox">
+        <div style="flex:1;">
+          <div class="ai-title">AI통합제어 시스템 적용</div>
+          <div class="ai-desc">시험인증서 기준 · 전기/가스 사용요금 자동 감면 (기본요금 제외)</div>
+        </div>
+        <span class="saving-badge">-11%</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- 4. 가스 요금 -->
+  <div class="section" id="aSec4">
+    <div class="section-header" onclick="toggleSection('aSec4')">
+      <div class="section-title"><span class="num">4</span>가스 요금</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="input-row" style="margin-top:6px;">
+        <label>가스 발열량</label><input type="number" id="aGasHeat" value="43.54" step="0.01"><span class="unit">MJ/N㎥</span>
+      </div>
+      <div class="note-text">월별 가스 단가 (원/MJ) — 동/하절기 차등</div>
+      <div class="month-grid" id="aGasRateGrid"></div>
+    </div>
+  </div>
+
+  <!-- 5. 전기 요금 단가 -->
+  <div class="section" id="aSec5">
+    <div class="section-header" onclick="toggleSection('aSec5')">
+      <div class="section-title"><span class="num">5</span>전기 요금 단가</div>
+      <div class="section-toggle">▾</div>
+    </div>
+    <div class="section-content">
+      <div class="note-text" style="margin-top:6px;">일반전기 종류 — 일반용전력(을)</div>
+      <select class="tier-select" id="aTierSelect"></select>
+      <div class="tier-info" id="aTierInfo"></div>
+      <div class="input-row"><label>일반전기 사용요금</label><input type="number" id="aRateGeneral" value="127.6" step="0.1"><span class="unit">원/kWh</span></div>
+    </div>
+  </div>
+
+  <!-- 6. 월별 운전율 -->
+  <div class="section no-collapse" id="aSec6">
+    <div class="section-header">
+      <div class="section-title"><span class="num">6</span>월별 운전율 (%)</div>
+    </div>
+    <div class="section-content">
+      <div class="chart-legend">
+        <span class="item"><span class="swatch cool"></span>냉방 (5~10월)</span>
+        <span class="item"><span class="swatch heat"></span>난방 (11~4월)</span>
+        <span class="hint">막대 클릭/드래그 또는 하단 수치 직접 입력</span>
+      </div>
+      <div class="chart-container">
+        <svg class="chart-svg" id="aLoadChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+        <div class="chart-values-row" id="aLoadValuesRow"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="reset-btn-wrap">
+    <button class="reset-btn" onclick="absResetDefaults()">기본값으로 초기화</button>
+    <button class="sync-btn" onclick="syncFromIce()" title="빙축열 탭의 운전 조건(패턴/시간/운전율/가스단가)을 흡수식으로 복사">⇄ 빙축열 조건 복사</button>
+  </div>
+</div>
+
+<!-- RIGHT: Outputs -->
+<div class="panel output-panel" id="outputPanelAbs">
+  <div class="output-header">
+    <button class="toggle-input-btn" onclick="toggleMainPanel('abs')">
+      <span class="icon">◀</span><span class="label-text">입력 접기</span>
+    </button>
+    <h2>자동 계산 결과</h2>
+    <div class="action-buttons">
+      <button class="action-btn excel" onclick="downloadExcelAbs()">📊 엑셀 다운로드</button>
+      <button class="action-btn pdf" onclick="downloadPDFAbs()">📄 PDF 다운로드</button>
+    </div>
+  </div>
+
+  <div class="summary-cards">
+    <div class="card elec">
+      <div class="card-label">연간 전기 사용량</div>
+      <div class="card-value" id="aTotalElecKwh">0 kWh</div>
+      <div class="card-sub" id="aElecBreakdown">-</div>
+    </div>
+    <div class="card gas">
+      <div class="card-label">연간 가스 사용량</div>
+      <div class="card-value" id="aTotalGasNm3">0 N㎥</div>
+      <div class="card-sub" id="aGasBreakdown">냉방 + 난방 통합</div>
+    </div>
+    <div class="card split">
+      <div class="card-label">연간 전기료 / 가스료</div>
+      <div class="card-value" id="aTotalSplit">0.00억 / 0.00억</div>
+      <div class="card-sub" id="aSplitSub">전기 / 가스 (억원)</div>
+    </div>
+    <div class="card grand">
+      <div class="card-label">연간 총 운전비</div>
+      <div class="card-value" id="aTotalAll">0 원</div>
+      <div class="card-sub" id="aTotalSub">-</div>
+    </div>
+  </div>
+
+  <div id="aPdfContent">
+    <h3><span class="h3-num">A</span>월별 전기 사용량 (kWh)</h3>
+    <div class="table-wrap" id="aElecUseTable"></div>
+
+    <h3><span class="h3-num">B</span>월별 가스 사용량 (N㎥)</h3>
+    <div class="table-wrap" id="aGasUseTable"></div>
+
+    <h3><span class="h3-num">C</span>월별 전기료 (원)</h3>
+    <div class="table-wrap" id="aElecCostTable"></div>
+
+    <h3><span class="h3-num">D</span>월별 가스료 (원)</h3>
+    <div class="table-wrap" id="aGasCostTable"></div>
+
+    <h3><span class="h3-num">E</span>월별 운전비 종합 (원)</h3>
+    <div class="table-wrap" id="aTotalCostTable"></div>
+  </div>
+</div>
+
+</div>
+</div>
+<!-- ============ END TAB: 흡수식 ============ -->
+
+<!-- ============ TAB: 비교 ============ -->
+<div id="tab-cmp" class="tab-content">
+
+<div class="header cmp">
+  <h1>운전비 비교 분석 — 빙축열 vs 흡수식 냉온수기</h1>
+  <div class="subtitle">두 시스템의 연간 운전비를 종합 비교하여 발주처 의사결정 지원</div>
+  <div class="badges">
+    <span class="badge" id="cmpBadgeIce">빙축열: -</span>
+    <span class="badge" id="cmpBadgeAbs">흡수식: -</span>
+    <span class="badge accent" id="cmpBadgeAI">AI: -</span>
+  </div>
+</div>
+
+<div id="cmpEmptyBanner" class="cmp-status-banner" style="display:none;">
+  <b>안내:</b> 양쪽 탭(빙축열 / 흡수식)에서 각각 입력값을 설정하고 자동 계산을 완료해 주세요. 두 시스템 모두 계산이 완료되면 비교 분석이 표시됩니다.
+</div>
+
+<div id="cmpVerdict" class="cmp-verdict">
+  <h2 id="cmpVerdictTitle">흡수식 냉온수기 시스템이 연간 ₩0 절감됩니다</h2>
+  <div id="cmpVerdictDesc" style="font-size:13px;opacity:0.92;">계산 결과 분석 중...</div>
+  <div class="vd-grid">
+    <div class="vd-cell">
+      <div class="vd-lbl">연간 운전비 차액</div>
+      <div class="vd-val" id="cmpDiffVal">₩0</div>
+      <div class="vd-sub" id="cmpDiffPct">- %</div>
+    </div>
+    <div class="vd-cell">
+      <div class="vd-lbl">전기료 차이 (흡수식 - 빙축열)</div>
+      <div class="vd-val" id="cmpElecDiff">₩0</div>
+      <div class="vd-sub" id="cmpElecDesc">-</div>
+    </div>
+    <div class="vd-cell">
+      <div class="vd-lbl">가스료 차이 (흡수식 - 빙축열)</div>
+      <div class="vd-val" id="cmpGasDiff">₩0</div>
+      <div class="vd-sub" id="cmpGasDesc">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="cmp-grid">
+  <div class="cmp-card ice">
+    <h3>❄ 빙축열 시스템 + 보일러</h3>
+    <div id="cmpIceContent"><div style="padding:20px;color:#94a3b8;text-align:center;">빙축열 탭에서 계산을 완료해 주세요.</div></div>
+  </div>
+  <div class="cmp-card abs">
+    <h3>🔥 흡수식 냉온수기</h3>
+    <div id="cmpAbsContent"><div style="padding:20px;color:#94a3b8;text-align:center;">흡수식 탭에서 계산을 완료해 주세요.</div></div>
+  </div>
+</div>
+
+<div class="cmp-monthly-chart">
+  <h3>월별 운전비 비교</h3>
+  <div class="chart-subtitle">전기료 + 가스료 (부가세 포함) · 단위 백만원 · 막대 아래는 월별 차액(흡수식 기준)</div>
+  <svg class="cmp-bar-chart-svg" id="cmpMonthlyChart" viewBox="0 0 1200 360" preserveAspectRatio="xMidYMid meet"></svg>
+</div>
+
+<div class="cmp-monthly-table">
+  <h3>월별 운전비 상세 비교 (원)</h3>
+  <div class="table-wrap" id="cmpMonthlyTable"></div>
+</div>
+
+</div>
+<!-- ============ END TAB: 비교 ============ -->
+
+<!-- Hover tooltip element -->
+<div id="cellTooltip" class="cell-tooltip"></div>
 
 <script>
 'use strict';
 
+/* ============================================================
+   COMMON CONSTANTS
+   ============================================================ */
 const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 const coolingSet = new Set([4,5,6,7,8,9]);  // 5~10월 냉방
 
@@ -777,199 +1369,26 @@ const TIERS = {
 
 const defaultGasRates = [19.8964, 19.8964, 19.8964, 18.6208, 12.6624, 12.6624, 12.6624, 12.6624, 12.6624, 18.6208, 18.6208, 19.8964];
 const defaultLoadFactors = [55, 45, 25, 10, 20, 50, 80, 85, 60, 15, 30, 50];
-let loadFactors = [...defaultLoadFactors];
-
-const state = {
-  iceCount: 2, normalCount: 2, heatCount: 2,
-  opPattern: 'office',
-  collapsed: false
-};
-
-// Latest calculation snapshot — used by download functions
-let latestCalc = null;
+const altLoadFactors = [34, 29, 24, 20, 30, 40, 60, 60, 40, 30, 21, 31];  // ALT-2 검토서 기준
 
 function getSeason(m) {
   if (m >= 5 && m <= 7) return 'summer';
   if (m === 10 || m === 11 || m === 0 || m === 1) return 'winter';
   return 'spring';
 }
-
-function toggleSection(id) {
-  document.getElementById(id).classList.toggle('collapsed');
-}
-
-function toggleMainPanel() {
-  state.collapsed = !state.collapsed;
-  const c = document.getElementById('mainContainer');
-  c.classList.toggle('collapsed', state.collapsed);
-  const lbl = document.querySelector('.toggle-input-btn .label-text');
-  if (lbl) lbl.textContent = state.collapsed ? '입력 펴기' : '입력 접기';
-}
-
-function buildGasGrid() {
-  const c = document.getElementById('gasRateGrid');
-  c.innerHTML = '';
-  for (let i = 0; i < 12; i++) {
-    const div = document.createElement('div');
-    const cool = coolingSet.has(i);
-    div.className = 'month-input-cell ' + (cool ? 'cooling' : 'heating');
-    div.innerHTML = `<label>${months[i]}</label><input type="number" id="gr${i}" value="${defaultGasRates[i]}" step="0.01">`;
-    c.appendChild(div);
-  }
-}
-
-function buildTierSelect() {
-  const sel = document.getElementById('tierSelect');
-  sel.innerHTML = '';
-  for (const t of Object.keys(TIERS)) {
-    const o = document.createElement('option');
-    o.value = t;
-    o.textContent = t + '  ·  기본요금 ' + TIERS[t].base.toLocaleString() + '원/kW';
-    if (t === '고압A 선택Ⅱ') o.selected = true;
-    sel.appendChild(o);
-  }
-  sel.onchange = () => { updateTierInfo(); applyTierToField(); calculate(); };
-}
-
-function updateTierInfo() {
-  const tier = document.getElementById('tierSelect').value;
-  const t = TIERS[tier];
-  document.getElementById('tierInfo').innerHTML =
-    `<strong>${tier}</strong> · 기본요금 <strong>${t.base.toLocaleString()}원/kW</strong><br>` +
-    `중간부하 단가(원/kWh) — 여름 <strong>${t.summer}</strong> / 봄·가을 <strong>${t.spring}</strong> / 겨울 <strong>${t.winter}</strong>`;
-}
-
-function applyTierToField() {
-  const tier = document.getElementById('tierSelect').value;
-  const t = TIERS[tier];
-  const avg = (t.summer*3 + t.spring*5 + t.winter*4) / 12;
-  document.getElementById('rateGeneral').value = avg.toFixed(1);
-}
-
-function attachCountButtons() {
-  document.querySelectorAll('.count-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const tgt = this.dataset.target;
-      const val = parseInt(this.dataset.val);
-      document.querySelectorAll(`.count-btn[data-target="${tgt}"]`).forEach(b => b.classList.remove('active'));
-      this.classList.add('active');
-      state[tgt] = val;
-      calculate();
-    });
-  });
-}
-
-function attachRadios() {
-  document.querySelectorAll('input[name="opPattern"]').forEach(r => {
-    r.addEventListener('change', function() {
-      state.opPattern = this.value;
-      document.getElementById('fixedDaysRow').style.display = this.value === 'fixed' ? '' : 'none';
-      calculate();
-    });
-  });
-}
-
-function getOpDays(m) {
-  if (state.opPattern === 'office') return days2026.weekdays[m];
-  if (state.opPattern === 'commercial') return days2026.total[m];
-  return parseFloat(document.getElementById('fixedDays').value) || 20;
-}
-
-/* ===== Interactive Bar Chart ===== */
-function renderChartBars() {
-  const svg = document.getElementById('loadChart');
-  const W = 600, H = 200;
-  const padL = 30, padR = 8, padT = 12, padB = 28;
-  const cw = W - padL - padR;
-  const ch = H - padT - padB;
-  const barW = cw / 12;
-  const innerBarW = barW - 6;
-  let html = '';
-  for (let i = 0; i <= 4; i++) {
-    const y = padT + (ch * i / 4);
-    const v = 100 - i * 25;
-    html += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"></line>`;
-    html += `<text class="axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${v}%</text>`;
-  }
-  for (let i = 0; i < 12; i++) {
-    const cls = coolingSet.has(i) ? 'cooling' : 'heating';
-    const v = Math.max(0, Math.min(100, loadFactors[i]));
-    const barH = (v / 100) * ch;
-    const x = padL + barW * i + 3;
-    const y = padT + ch - barH;
-    html += `<rect class="bar ${cls}" x="${x}" y="${y}" width="${innerBarW}" height="${barH}" rx="3"></rect>`;
-    if (v >= 10) {
-      html += `<text class="value-label" x="${padL + barW * i + barW/2}" y="${y + 12}" text-anchor="middle">${v.toFixed(0)}</text>`;
-    }
-    html += `<text class="axis-label" x="${padL + barW * i + barW/2}" y="${H - padB + 14}" text-anchor="middle">${months[i]}</text>`;
-  }
-  svg.innerHTML = html;
-}
-
-function buildChartValues() {
-  const container = document.getElementById('loadValuesRow');
-  let html = '';
-  for (let i = 0; i < 12; i++) {
-    const cool = coolingSet.has(i);
-    html += `<div class="chart-value-cell ${cool?'cool':'heat'}"><input type="number" class="cv-input" data-month="${i}" min="0" max="100" step="1" value="${Math.round(loadFactors[i])}"></div>`;
-  }
-  container.innerHTML = html;
-  container.querySelectorAll('.cv-input').forEach(inp => {
-    inp.addEventListener('input', e => {
-      const idx = parseInt(e.target.dataset.month);
-      let v = parseFloat(e.target.value);
-      if (isNaN(v)) v = 0;
-      v = Math.max(0, Math.min(100, v));
-      loadFactors[idx] = v;
-      renderChartBars();
-      calculate();
-    });
-  });
-}
-
-function updateChartValuesOnly() {
-  document.querySelectorAll('.cv-input').forEach((inp, i) => {
-    if (document.activeElement !== inp) {
-      inp.value = Math.round(loadFactors[i]);
-    }
-  });
-}
-
-function handleChartInteraction(clientX, clientY) {
-  const svg = document.getElementById('loadChart');
-  const rect = svg.getBoundingClientRect();
-  const x = (clientX - rect.left) * (600 / rect.width);
-  const y = (clientY - rect.top) * (200 / rect.height);
-  const padL = 30, padT = 12, padR = 8, padB = 28;
-  const cw = 600 - padL - padR;
-  const ch = 200 - padT - padB;
-  const barW = cw / 12;
-  const idx = Math.floor((x - padL) / barW);
-  if (idx < 0 || idx > 11) return;
-  let v = ((padT + ch - y) / ch) * 100;
-  v = Math.max(0, Math.min(100, v));
-  loadFactors[idx] = Math.round(v);
-  renderChartBars();
-  updateChartValuesOnly();
-  calculate();
-}
-
-function attachChartEvents() {
-  const svg = document.getElementById('loadChart');
-  let drag = false;
-  svg.addEventListener('mousedown', e => { drag = true; handleChartInteraction(e.clientX, e.clientY); e.preventDefault(); });
-  svg.addEventListener('mousemove', e => { if (drag) handleChartInteraction(e.clientX, e.clientY); });
-  document.addEventListener('mouseup', () => { drag = false; });
-  svg.addEventListener('touchstart', e => { drag = true; const t = e.touches[0]; handleChartInteraction(t.clientX, t.clientY); e.preventDefault(); }, {passive: false});
-  svg.addEventListener('touchmove', e => { if (drag) { const t = e.touches[0]; handleChartInteraction(t.clientX, t.clientY); e.preventDefault(); } }, {passive: false});
-  document.addEventListener('touchend', () => { drag = false; });
-}
-
-/* ===== Utilities ===== */
-function num(id) { return parseFloat(document.getElementById(id).value) || 0; }
 function fmt(n) { if (Math.abs(n) < 0.5) return '-'; return Math.round(n).toLocaleString('ko-KR'); }
 function fmtWon(n) { return Math.round(n).toLocaleString('ko-KR') + ' 원'; }
 function fmtEok(n) { return (n / 1e8).toFixed(2) + '억'; }
+function num(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function fmtFix(n, d=1) {
+  if (!isFinite(n)) return '0';
+  return Number(n).toLocaleString('ko-KR', {minimumFractionDigits: d, maximumFractionDigits: d});
+}
 
 function buildTable(rows, hasTotal = true) {
   let html = '<table class="result"><colgroup><col class="head-col">';
@@ -987,17 +1406,343 @@ function buildTable(rows, hasTotal = true) {
     for (let i = 0; i < 12; i++) {
       const v = row.values[i] || 0;
       sum += v;
-      html += `<td>${fmt(v)}</td>`;
+      const tip = row.tips && row.tips[i] ? ` data-tip="${escapeAttr(row.tips[i])}"` : '';
+      html += `<td${tip}>${fmt(v)}</td>`;
     }
-    if (hasTotal) html += `<td class="sum-col">${fmt(sum)}</td>`;
+    if (hasTotal) {
+      const sumTip = row.sumTip ? ` data-tip="${escapeAttr(row.sumTip)}"` : '';
+      html += `<td class="sum-col"${sumTip}>${fmt(sum)}</td>`;
+    }
     html += '</tr>';
   }
   html += '</tbody></table>';
   return html;
 }
 
-/* ===== Main Calculation ===== */
-function calculate() {
+let __ttHooked = false;
+function attachTooltips(rootSelector, warm) {
+  const root = typeof rootSelector === 'string' ? document.querySelector(rootSelector) : rootSelector;
+  if (!root) return;
+  const tip = document.getElementById('cellTooltip');
+  if (!__ttHooked) {
+    document.addEventListener('scroll', () => tip.classList.remove('show'), true);
+    __ttHooked = true;
+  }
+  root.querySelectorAll('td[data-tip]').forEach(cell => {
+    cell.addEventListener('mouseenter', () => {
+      tip.classList.toggle('warm', !!warm);
+      tip.innerHTML = cell.dataset.tip;
+      tip.classList.add('show');
+    });
+    cell.addEventListener('mousemove', (e) => {
+      const padding = 16;
+      const r = tip.getBoundingClientRect();
+      let x = e.clientX + padding;
+      let y = e.clientY + padding;
+      if (x + r.width + 8 > window.innerWidth) x = e.clientX - r.width - padding;
+      if (y + r.height + 8 > window.innerHeight) y = e.clientY - r.height - padding;
+      if (y < 8) y = 8;
+      if (x < 8) x = 8;
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+    });
+    cell.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  });
+}
+
+/* ============================================================
+   TOOLTIP BUILDERS — 셀 계산 풀이용
+   ============================================================ */
+function tipKwh({title, perUnit, count, total, conditions, hrFormula, hours, days, opName, result, note, isHeat}) {
+  const cs = conditions ? `<div class="tt-line"><span class="k">운전조건</span> <span class="v">${conditions}</span></div>` : '';
+  const heatLabel = isHeat ? '난방' : '냉방';
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">대당 동력</span> <span class="v">${fmtFix(perUnit,1)} kW × ${count}대 = ${fmtFix(total,1)} kW</span></div>` +
+    cs +
+    `<div class="tt-line"><span class="k">${heatLabel} 운전</span> <span class="v">${hrFormula} = ${fmtFix(hours,2)} h/일</span></div>` +
+    `<div class="tt-line"><span class="k">운전일수</span> <span class="v">${days}일 (${opName})</span></div>` +
+    `<div class="tt-formula">${fmtFix(total,1)} kW × ${days}일 × ${fmtFix(hours,2)}h</div>` +
+    `<div class="tt-result">= ${fmt(result)} kWh</div>` +
+    (note ? `<div class="tt-note">${note}</div>` : '');
+}
+
+function tipGas({title, perUnit, count, total, hrFormula, hours, days, opName, result, isHeat, note}) {
+  const heatLabel = isHeat ? '난방' : '냉방';
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">대당 정격</span> <span class="v">${fmtFix(perUnit,2)} N㎥/h × ${count}대 = ${fmtFix(total,2)} N㎥/h</span></div>` +
+    `<div class="tt-line"><span class="k">${heatLabel} 운전</span> <span class="v">${hrFormula} = ${fmtFix(hours,2)} h/일</span></div>` +
+    `<div class="tt-line"><span class="k">운전일수</span> <span class="v">${days}일 (${opName})</span></div>` +
+    `<div class="tt-formula">${fmtFix(total,2)} × ${days} × ${fmtFix(hours,2)}</div>` +
+    `<div class="tt-result">= ${fmt(result)} N㎥</div>` +
+    (note ? `<div class="tt-note">${note}</div>` : '');
+}
+
+function tipBase({title, connKW, perKW, perKWFormula, result, note}) {
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">연결동력</span> <span class="v">${fmtFix(connKW,1)} kW</span></div>` +
+    `<div class="tt-line"><span class="k">단가</span> <span class="v">${perKWFormula || (fmtFix(perKW,0) + ' 원/kW')}</span></div>` +
+    `<div class="tt-formula">${fmtFix(connKW,1)} × ${fmtFix(perKW,0)}</div>` +
+    `<div class="tt-result">= ${fmt(result)} 원</div>` +
+    (note ? `<div class="tt-note">${note}</div>` : '');
+}
+
+function tipUseCost({title, kwh, rate, result, note, rateLabel}) {
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">사용량</span> <span class="v">${fmt(kwh)} kWh</span></div>` +
+    `<div class="tt-line"><span class="k">단가</span> <span class="v">${fmtFix(rate,1)} 원/kWh ${rateLabel||''}</span></div>` +
+    `<div class="tt-formula">${fmt(kwh)} × ${fmtFix(rate,1)}</div>` +
+    `<div class="tt-result">= ${fmt(result)} 원</div>` +
+    (note ? `<div class="tt-note">${note}</div>` : '');
+}
+
+function tipAISaving({title, original, rateAI, result, kind}) {
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">기본 ${kind}</span> <span class="v">${fmt(original)} 원</span></div>` +
+    `<div class="tt-line"><span class="k">AI 감면율</span> <span class="v">11% (감면계수 0.89)</span></div>` +
+    `<div class="tt-formula">${fmt(original)} × 0.89</div>` +
+    `<div class="tt-result">= ${fmt(result)} 원</div>` +
+    `<div class="tt-good">✓ AI통합제어 시스템 적용 시 자동 감면</div>`;
+}
+
+function tipGasCost({title, gasNm3, gasHeat, rate, result, note}) {
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">가스 사용량</span> <span class="v">${fmt(gasNm3)} N㎥</span></div>` +
+    `<div class="tt-line"><span class="k">발열량</span> <span class="v">${fmtFix(gasHeat,2)} MJ/N㎥</span></div>` +
+    `<div class="tt-line"><span class="k">단가</span> <span class="v">${fmtFix(rate,4)} 원/MJ</span></div>` +
+    `<div class="tt-formula">${fmt(gasNm3)} × ${fmtFix(gasHeat,2)} × ${fmtFix(rate,4)}</div>` +
+    `<div class="tt-result">= ${fmt(result)} 원</div>` +
+    (note ? `<div class="tt-note">${note}</div>` : '');
+}
+
+function tipElecTotal({title, base, useCost, useCostAI, vat, result, aiOn}) {
+  let html = `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">기본요금</span> <span class="v">${fmt(base)} 원</span></div>`;
+  if (aiOn) {
+    html += `<div class="tt-line"><span class="k">사용요금(정상)</span> <span class="v">${fmt(useCost)} 원</span></div>` +
+            `<div class="tt-line"><span class="k">AI감면 적용</span> <span class="v">${fmt(useCostAI)} 원 (×0.89)</span></div>` +
+            `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(vat)} 원</span></div>` +
+            `<div class="tt-formula">(${fmt(base)} + ${fmt(useCostAI)}) × 1.1</div>`;
+  } else {
+    html += `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(useCost)} 원</span></div>` +
+            `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(vat)} 원</span></div>` +
+            `<div class="tt-formula">(${fmt(base)} + ${fmt(useCost)}) × 1.1</div>`;
+  }
+  html += `<div class="tt-result">= ${fmt(result)} 원</div>`;
+  if (aiOn) html += `<div class="tt-good">✓ AI통합제어 시스템 적용</div>`;
+  return html;
+}
+
+function tipGrandTotal({title, elec, gas, result, monthLabel}) {
+  return `<div class="tt-title">${title}</div>` +
+    `<div class="tt-line"><span class="k">${monthLabel} 전기료</span> <span class="v">${fmt(elec)} 원</span></div>` +
+    `<div class="tt-line"><span class="k">${monthLabel} 가스료</span> <span class="v">${fmt(gas)} 원</span></div>` +
+    `<div class="tt-formula">${fmt(elec)} + ${fmt(gas)}</div>` +
+    `<div class="tt-result">= ${fmt(result)} 원</div>`;
+}
+
+function tipSum({title, values, unit, note}) {
+  const sum = values.reduce((a,b)=>a+b, 0);
+  const nz = values.map((v,i) => v > 0.5 ? `${months[i]} ${fmt(v)}` : null).filter(Boolean);
+  return `<div class="tt-title">${title} · 연간 합계</div>` +
+    `<div class="tt-line"><span class="k">월별 합산</span> <span class="v">12개월 누계</span></div>` +
+    (nz.length > 0 ? `<div class="tt-sub">${nz.slice(0,6).join(' · ')}</div>` +
+       (nz.length > 6 ? `<div class="tt-sub">${nz.slice(6).join(' · ')}</div>` : '') : '') +
+    `<div class="tt-result">= ${fmt(sum)} ${unit}</div>` +
+    (note ? `<div class="tt-note">${note}</div>` : '');
+}
+
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+function toggleMainPanel(which) {
+  const containerId = which === 'ice' ? 'mainContainerIce' : 'mainContainerAbs';
+  const c = document.getElementById(containerId);
+  c.classList.toggle('collapsed');
+  const lbl = c.querySelector('.toggle-input-btn .label-text');
+  if (lbl) lbl.textContent = c.classList.contains('collapsed') ? '입력 펴기' : '입력 접기';
+}
+
+/* ============================================================
+   TAB SWITCHING
+   ============================================================ */
+function switchTab(tab) {
+  document.querySelectorAll('.topnav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-content').forEach(d => d.classList.toggle('active', d.id === 'tab-' + tab));
+  if (tab === 'cmp') renderComparison();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+document.querySelectorAll('.topnav button').forEach(b => {
+  b.addEventListener('click', () => switchTab(b.dataset.tab));
+});
+
+/* ============================================================
+   ICE (빙축열) CALCULATOR
+   ============================================================ */
+const iceState = {
+  iceCount: 2, normalCount: 2, heatCount: 2,
+  opPattern: 'office'
+};
+let iceLoadFactors = [...defaultLoadFactors];
+let iceLatestCalc = null;
+
+function iceBuildGasGrid() {
+  const c = document.getElementById('gasRateGrid');
+  c.innerHTML = '';
+  for (let i = 0; i < 12; i++) {
+    const div = document.createElement('div');
+    const cool = coolingSet.has(i);
+    div.className = 'month-input-cell ' + (cool ? 'cooling' : 'heating');
+    div.innerHTML = `<label>${months[i]}</label><input type="number" id="gr${i}" value="${defaultGasRates[i]}" step="0.01">`;
+    c.appendChild(div);
+  }
+}
+
+function iceBuildTierSelect() {
+  const sel = document.getElementById('tierSelect');
+  sel.innerHTML = '';
+  for (const t of Object.keys(TIERS)) {
+    const o = document.createElement('option');
+    o.value = t;
+    o.textContent = t + '  ·  기본요금 ' + TIERS[t].base.toLocaleString() + '원/kW';
+    if (t === '고압A 선택Ⅱ') o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => { iceUpdateTierInfo(); iceApplyTierToField(); iceCalculate(); };
+}
+
+function iceUpdateTierInfo() {
+  const tier = document.getElementById('tierSelect').value;
+  const t = TIERS[tier];
+  document.getElementById('tierInfo').innerHTML =
+    `<strong>${tier}</strong> · 기본요금 <strong>${t.base.toLocaleString()}원/kW</strong><br>` +
+    `중간부하 단가(원/kWh) — 여름 <strong>${t.summer}</strong> / 봄·가을 <strong>${t.spring}</strong> / 겨울 <strong>${t.winter}</strong>`;
+}
+
+function iceApplyTierToField() {
+  const tier = document.getElementById('tierSelect').value;
+  const t = TIERS[tier];
+  const avg = (t.summer*3 + t.spring*5 + t.winter*4) / 12;
+  document.getElementById('rateGeneral').value = avg.toFixed(1);
+}
+
+function iceAttachCountButtons() {
+  document.querySelectorAll('#tab-ice .count-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tgt = this.dataset.target;
+      const val = parseInt(this.dataset.val);
+      document.querySelectorAll(`#tab-ice .count-btn[data-target="${tgt}"]`).forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      iceState[tgt] = val;
+      iceCalculate();
+    });
+  });
+}
+
+function iceAttachRadios() {
+  document.querySelectorAll('input[name="opPattern"]').forEach(r => {
+    r.addEventListener('change', function() {
+      iceState.opPattern = this.value;
+      document.getElementById('fixedDaysRow').style.display = this.value === 'fixed' ? '' : 'none';
+      iceCalculate();
+    });
+  });
+}
+
+function iceGetOpDays(m) {
+  if (iceState.opPattern === 'office') return days2026.weekdays[m];
+  if (iceState.opPattern === 'commercial') return days2026.total[m];
+  return parseFloat(document.getElementById('fixedDays').value) || 20;
+}
+
+function iceRenderChartBars() {
+  const svg = document.getElementById('loadChart');
+  const W = 600, H = 200;
+  const padL = 30, padR = 8, padT = 12, padB = 28;
+  const cw = W - padL - padR;
+  const ch = H - padT - padB;
+  const barW = cw / 12;
+  const innerBarW = barW - 6;
+  let html = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (ch * i / 4);
+    const v = 100 - i * 25;
+    html += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"></line>`;
+    html += `<text class="axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${v}%</text>`;
+  }
+  for (let i = 0; i < 12; i++) {
+    const cls = coolingSet.has(i) ? 'cooling' : 'heating';
+    const v = Math.max(0, Math.min(100, iceLoadFactors[i]));
+    const barH = (v / 100) * ch;
+    const x = padL + barW * i + 3;
+    const y = padT + ch - barH;
+    html += `<rect class="bar ${cls}" x="${x}" y="${y}" width="${innerBarW}" height="${barH}" rx="3"></rect>`;
+    if (v >= 10) {
+      html += `<text class="value-label" x="${padL + barW * i + barW/2}" y="${y + 12}" text-anchor="middle">${v.toFixed(0)}</text>`;
+    }
+    html += `<text class="axis-label" x="${padL + barW * i + barW/2}" y="${H - padB + 14}" text-anchor="middle">${months[i]}</text>`;
+  }
+  svg.innerHTML = html;
+}
+
+function iceBuildChartValues() {
+  const container = document.getElementById('loadValuesRow');
+  let html = '';
+  for (let i = 0; i < 12; i++) {
+    const cool = coolingSet.has(i);
+    html += `<div class="chart-value-cell ${cool?'cool':'heat'}"><input type="number" class="cv-input" data-month="${i}" min="0" max="100" step="1" value="${Math.round(iceLoadFactors[i])}"></div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.cv-input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const idx = parseInt(e.target.dataset.month);
+      let v = parseFloat(e.target.value);
+      if (isNaN(v)) v = 0;
+      v = Math.max(0, Math.min(100, v));
+      iceLoadFactors[idx] = v;
+      iceRenderChartBars();
+      iceCalculate();
+    });
+  });
+}
+
+function iceUpdateChartValuesOnly() {
+  document.querySelectorAll('#tab-ice .cv-input').forEach((inp, i) => {
+    if (document.activeElement !== inp) inp.value = Math.round(iceLoadFactors[i]);
+  });
+}
+
+function iceHandleChartInteraction(clientX, clientY) {
+  const svg = document.getElementById('loadChart');
+  const rect = svg.getBoundingClientRect();
+  const x = (clientX - rect.left) * (600 / rect.width);
+  const y = (clientY - rect.top) * (200 / rect.height);
+  const padL = 30, padT = 12, padR = 8, padB = 28;
+  const cw = 600 - padL - padR;
+  const ch = 200 - padT - padB;
+  const barW = cw / 12;
+  const idx = Math.floor((x - padL) / barW);
+  if (idx < 0 || idx > 11) return;
+  let v = ((padT + ch - y) / ch) * 100;
+  v = Math.max(0, Math.min(100, v));
+  iceLoadFactors[idx] = Math.round(v);
+  iceRenderChartBars();
+  iceUpdateChartValuesOnly();
+  iceCalculate();
+}
+
+function iceAttachChartEvents() {
+  const svg = document.getElementById('loadChart');
+  let drag = false;
+  svg.addEventListener('mousedown', e => { drag = true; iceHandleChartInteraction(e.clientX, e.clientY); e.preventDefault(); });
+  svg.addEventListener('mousemove', e => { if (drag) iceHandleChartInteraction(e.clientX, e.clientY); });
+  document.addEventListener('mouseup', () => { drag = false; });
+  svg.addEventListener('touchstart', e => { drag = true; const t = e.touches[0]; iceHandleChartInteraction(t.clientX, t.clientY); e.preventDefault(); }, {passive: false});
+  svg.addEventListener('touchmove', e => { if (drag) { const t = e.touches[0]; iceHandleChartInteraction(t.clientX, t.clientY); e.preventDefault(); } }, {passive: false});
+  document.addEventListener('touchend', () => { drag = false; });
+}
+
+function iceCalculate() {
   const tier = document.getElementById('tierSelect').value;
   const t = TIERS[tier];
 
@@ -1005,9 +1750,9 @@ function calculate() {
   const nightH = num('nightHours');
   const alpha = num('storageRatio') / 100;
 
-  const iceN = state.iceCount;
-  const normN = state.normalCount;
-  const heatN = state.heatCount;
+  const iceN = iceState.iceCount;
+  const normN = iceState.normalCount;
+  const heatN = iceState.heatCount;
 
   const iceTurboDay = num('iceTurboDay') * iceN;
   const iceTurboNight = num('iceTurboNight') * iceN;
@@ -1036,25 +1781,36 @@ function calculate() {
   for (let i = 0; i < 12; i++) gr.push(num('gr' + i));
 
   const equipmentRows = [
-    { label: '냉동기(빙축열용, 야간 축냉)', tariff: 'night', vals: [] },
-    { label: '냉동기(빙축열용, 주간 추가)', tariff: 'iceDay', vals: [] },
-    { label: '냉동기(상온용)', tariff: 'general', vals: [] },
-    { label: '냉각탑(빙축열용)', tariff: 'split-ice', vals: [], nightVals: [], dayVals: [] },
-    { label: '냉각탑(상온용)', tariff: 'general', vals: [] },
-    { label: '펌프(브라인 순환)', tariff: 'night', vals: [] },
-    { label: '펌프(냉각수, 빙축열용)', tariff: 'split-ice', vals: [], nightVals: [], dayVals: [] },
-    { label: '펌프(냉수, 빙축열용)', tariff: 'iceDay', vals: [] },
-    { label: '펌프(냉각수, 상온용)', tariff: 'general', vals: [] },
-    { label: '펌프(냉수, 상온용)', tariff: 'general', vals: [] },
-    { label: '보일러(난방용)', tariff: 'general', vals: [] },
-    { label: '펌프(난방 순환)', tariff: 'general', vals: [] }
+    { label: '냉동기(빙축열용, 야간 축냉)', tariff: 'night', vals: [], tips: [] },
+    { label: '냉동기(빙축열용, 주간 추가)', tariff: 'iceDay', vals: [], tips: [] },
+    { label: '냉동기(상온용)', tariff: 'general', vals: [], tips: [] },
+    { label: '냉각탑(빙축열용)', tariff: 'split-ice', vals: [], nightVals: [], dayVals: [], tips: [] },
+    { label: '냉각탑(상온용)', tariff: 'general', vals: [], tips: [] },
+    { label: '펌프(브라인 순환)', tariff: 'night', vals: [], tips: [] },
+    { label: '펌프(냉각수, 빙축열용)', tariff: 'split-ice', vals: [], nightVals: [], dayVals: [], tips: [] },
+    { label: '펌프(냉수, 빙축열용)', tariff: 'iceDay', vals: [], tips: [] },
+    { label: '펌프(냉각수, 상온용)', tariff: 'general', vals: [], tips: [] },
+    { label: '펌프(냉수, 상온용)', tariff: 'general', vals: [], tips: [] },
+    { label: '보일러(난방용)', tariff: 'general', vals: [], tips: [] },
+    { label: '펌프(난방 순환)', tariff: 'general', vals: [], tips: [] }
   ];
   const gasUse = [];
+  const gasTips = [];
+
+  // 단위 동력 (대당)
+  const u_iceTurboDay = num('iceTurboDay'), u_iceTurboNight = num('iceTurboNight');
+  const u_iceCT = num('iceCT'), u_brinePump = num('brinePump');
+  const u_iceCWP = num('iceCWP'), u_iceCHWP = num('iceCHWP');
+  const u_normalTurbo = num('normalTurbo'), u_normalCT = num('normalCT');
+  const u_normalCWP = num('normalCWP'), u_normalCHWP = num('normalCHWP');
+  const u_boilerElec = num('boilerElec'), u_boilerGas = num('boilerGas');
+  const u_heatPump = num('heatPump');
+  const _opName = iceState.opPattern === 'office' ? '오피스 평일' : iceState.opPattern === 'commercial' ? '상업시설 전일' : '일괄기입';
 
   for (let m = 0; m < 12; m++) {
-    const beta = loadFactors[m] / 100;
+    const beta = iceLoadFactors[m] / 100;
     const cool = coolingSet.has(m);
-    const days = getOpDays(m);
+    const days = iceGetOpDays(m);
     let iceNight_h = 0, iceDayExtra_h = 0, normalDay_h = 0;
     let iceDelivery_h = 0, boilerH = 0;
     if (cool && beta > 0 && alpha > 0) {
@@ -1065,27 +1821,159 @@ function calculate() {
     } else if (!cool && beta > 0) {
       boilerH = dayH * beta;
     }
-    equipmentRows[0].vals.push(iceTurboNight * days * iceNight_h);
-    equipmentRows[1].vals.push(iceTurboDay * days * iceDayExtra_h);
-    equipmentRows[2].vals.push(normalTurbo * days * normalDay_h);
+    const v0 = iceTurboNight * days * iceNight_h;
+    const v1 = iceTurboDay * days * iceDayExtra_h;
+    const v2 = normalTurbo * days * normalDay_h;
+    equipmentRows[0].vals.push(v0);
+    equipmentRows[1].vals.push(v1);
+    equipmentRows[2].vals.push(v2);
     const ictN = iceCT * days * iceNight_h;
     const ictD = iceCT * days * iceDayExtra_h;
     equipmentRows[3].vals.push(ictN + ictD);
     equipmentRows[3].nightVals.push(ictN);
     equipmentRows[3].dayVals.push(ictD);
-    equipmentRows[4].vals.push(normalCT * days * normalDay_h);
-    equipmentRows[5].vals.push(brinePump * days * iceNight_h);
+    const v4 = normalCT * days * normalDay_h;
+    const v5 = brinePump * days * iceNight_h;
+    equipmentRows[4].vals.push(v4);
+    equipmentRows[5].vals.push(v5);
     const icwpN = iceCWP * days * iceNight_h;
     const icwpD = iceCWP * days * iceDayExtra_h;
     equipmentRows[6].vals.push(icwpN + icwpD);
     equipmentRows[6].nightVals.push(icwpN);
     equipmentRows[6].dayVals.push(icwpD);
-    equipmentRows[7].vals.push(iceCHWP * days * iceDelivery_h);
-    equipmentRows[8].vals.push(normalCWP * days * normalDay_h);
-    equipmentRows[9].vals.push(normalCHWP * days * normalDay_h);
-    equipmentRows[10].vals.push(boilerElec * days * boilerH);
-    equipmentRows[11].vals.push(heatPump * days * boilerH);
-    gasUse.push(boilerGas * days * boilerH);
+    const v7 = iceCHWP * days * iceDelivery_h;
+    const v8 = normalCWP * days * normalDay_h;
+    const v9 = normalCHWP * days * normalDay_h;
+    const v10 = boilerElec * days * boilerH;
+    const v11 = heatPump * days * boilerH;
+    equipmentRows[7].vals.push(v7);
+    equipmentRows[8].vals.push(v8);
+    equipmentRows[9].vals.push(v9);
+    equipmentRows[10].vals.push(v10);
+    equipmentRows[11].vals.push(v11);
+    const gasV = boilerGas * days * boilerH;
+    gasUse.push(gasV);
+
+    // ===== 툴팁 생성 =====
+    const mL = months[m] + ' · ';
+    const betaPct = (beta*100).toFixed(0);
+    const alphaPct = (alpha*100).toFixed(0);
+    const condCool = `월부하율 β=${betaPct}% / 축열비 α=${alphaPct}%`;
+    const condHeat = `월부하율 β=${betaPct}%`;
+
+    // 0: 빙축열 야간 축냉
+    equipmentRows[0].tips.push(cool ? tipKwh({
+      title: mL + '냉동기(빙축열용, 야간 축냉)',
+      perUnit: u_iceTurboNight, count: iceN, total: iceTurboNight, conditions: condCool,
+      hrFormula: `${nightH}h × min(β/α, 1) = ${nightH} × min(${beta.toFixed(2)}/${alpha.toFixed(2)}, 1)`,
+      hours: iceNight_h, days, opName: _opName, result: v0,
+      note: '심야전기(야간) 단가 적용'
+    }) : `<div class="tt-title">${months[m]} · 냉동기(빙축열용, 야간)</div><div class="tt-note">난방월 — 빙축열 미운전</div>`);
+
+    // 1: 빙축열 주간 추가
+    equipmentRows[1].tips.push(cool ? tipKwh({
+      title: mL + '냉동기(빙축열용, 주간 추가)',
+      perUnit: u_iceTurboDay, count: iceN, total: iceTurboDay, conditions: condCool,
+      hrFormula: `${dayH}h × max(0, β-α) = ${dayH} × max(0, ${beta.toFixed(2)}-${alpha.toFixed(2)})`,
+      hours: iceDayExtra_h, days, opName: _opName, result: v1,
+      note: '축열량 부족 시 주간 추가 운전 (심야 주간 단가)'
+    }) : `<div class="tt-title">${months[m]} · 냉동기(빙축열용, 주간)</div><div class="tt-note">난방월 — 빙축열 미운전</div>`);
+
+    // 2: 상온 냉동기
+    equipmentRows[2].tips.push(cool ? tipKwh({
+      title: mL + '냉동기(상온용)',
+      perUnit: u_normalTurbo, count: normN, total: normalTurbo, conditions: condCool,
+      hrFormula: `${dayH}h × β = ${dayH} × ${beta.toFixed(2)}`,
+      hours: normalDay_h, days, opName: _opName, result: v2,
+      note: '일반전기 단가 적용'
+    }) : `<div class="tt-title">${months[m]} · 냉동기(상온용)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 3: 빙축열 냉각탑 (야간 + 주간 합)
+    equipmentRows[3].tips.push(cool ? (
+      `<div class="tt-title">${mL}냉각탑(빙축열용)</div>` +
+      `<div class="tt-line"><span class="k">대당 동력</span> <span class="v">${fmtFix(u_iceCT,1)} kW × ${iceN}대 = ${fmtFix(iceCT,1)} kW</span></div>` +
+      `<div class="tt-line"><span class="k">운전조건</span> <span class="v">${condCool}</span></div>` +
+      `<div class="tt-line"><span class="k">야간(축냉) 분</span> <span class="v">${fmtFix(iceCT,1)} × ${days}일 × ${fmtFix(iceNight_h,2)}h = ${fmt(ictN)} kWh</span></div>` +
+      `<div class="tt-line"><span class="k">주간(추가) 분</span> <span class="v">${fmtFix(iceCT,1)} × ${days}일 × ${fmtFix(iceDayExtra_h,2)}h = ${fmt(ictD)} kWh</span></div>` +
+      `<div class="tt-formula">야간 ${fmt(ictN)} + 주간 ${fmt(ictD)}</div>` +
+      `<div class="tt-result">= ${fmt(ictN + ictD)} kWh</div>` +
+      `<div class="tt-note">야간분/주간분 별도 단가 적용</div>`
+    ) : `<div class="tt-title">${months[m]} · 냉각탑(빙축열용)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 4: 상온 냉각탑
+    equipmentRows[4].tips.push(cool ? tipKwh({
+      title: mL + '냉각탑(상온용)',
+      perUnit: u_normalCT, count: normN, total: normalCT, conditions: condCool,
+      hrFormula: `${dayH}h × β = ${dayH} × ${beta.toFixed(2)}`,
+      hours: normalDay_h, days, opName: _opName, result: v4
+    }) : `<div class="tt-title">${months[m]} · 냉각탑(상온용)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 5: 브라인 순환펌프
+    equipmentRows[5].tips.push(cool ? tipKwh({
+      title: mL + '펌프(브라인 순환)',
+      perUnit: u_brinePump, count: iceN, total: brinePump, conditions: condCool,
+      hrFormula: `${nightH}h × min(β/α, 1)`,
+      hours: iceNight_h, days, opName: _opName, result: v5,
+      note: '야간 축냉 시간만 운전 (심야전기 야간단가)'
+    }) : `<div class="tt-title">${months[m]} · 브라인 펌프</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 6: 냉각수 펌프(빙축열용)
+    equipmentRows[6].tips.push(cool ? (
+      `<div class="tt-title">${mL}펌프(냉각수, 빙축열용)</div>` +
+      `<div class="tt-line"><span class="k">대당 동력</span> <span class="v">${fmtFix(u_iceCWP,1)} kW × ${iceN}대 = ${fmtFix(iceCWP,1)} kW</span></div>` +
+      `<div class="tt-line"><span class="k">야간(축냉) 분</span> <span class="v">${fmtFix(iceCWP,1)} × ${days}일 × ${fmtFix(iceNight_h,2)}h = ${fmt(icwpN)} kWh</span></div>` +
+      `<div class="tt-line"><span class="k">주간(추가) 분</span> <span class="v">${fmtFix(iceCWP,1)} × ${days}일 × ${fmtFix(iceDayExtra_h,2)}h = ${fmt(icwpD)} kWh</span></div>` +
+      `<div class="tt-formula">야간 ${fmt(icwpN)} + 주간 ${fmt(icwpD)}</div>` +
+      `<div class="tt-result">= ${fmt(icwpN + icwpD)} kWh</div>`
+    ) : `<div class="tt-title">${months[m]} · 냉각수펌프(빙축)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 7: 냉수 펌프(빙축열용)
+    equipmentRows[7].tips.push(cool ? tipKwh({
+      title: mL + '펌프(냉수, 빙축열용)',
+      perUnit: u_iceCHWP, count: iceN, total: iceCHWP, conditions: condCool,
+      hrFormula: `${dayH}h × β (주간 송수)`,
+      hours: iceDelivery_h, days, opName: _opName, result: v7,
+      note: '주간 냉수 송수 시간 (심야 주간단가)'
+    }) : `<div class="tt-title">${months[m]} · 냉수펌프(빙축)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 8: 냉각수 펌프(상온)
+    equipmentRows[8].tips.push(cool ? tipKwh({
+      title: mL + '펌프(냉각수, 상온용)',
+      perUnit: u_normalCWP, count: normN, total: normalCWP, conditions: condCool,
+      hrFormula: `${dayH}h × β`, hours: normalDay_h, days, opName: _opName, result: v8
+    }) : `<div class="tt-title">${months[m]} · 냉각수펌프(상온)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 9: 냉수 펌프(상온)
+    equipmentRows[9].tips.push(cool ? tipKwh({
+      title: mL + '펌프(냉수, 상온용)',
+      perUnit: u_normalCHWP, count: normN, total: normalCHWP, conditions: condCool,
+      hrFormula: `${dayH}h × β`, hours: normalDay_h, days, opName: _opName, result: v9
+    }) : `<div class="tt-title">${months[m]} · 냉수펌프(상온)</div><div class="tt-note">난방월 — 미운전</div>`);
+
+    // 10: 보일러 전기
+    equipmentRows[10].tips.push(!cool && beta > 0 ? tipKwh({
+      title: mL + '보일러(난방용, 전기)',
+      perUnit: u_boilerElec, count: heatN, total: boilerElec, conditions: condHeat,
+      hrFormula: `${dayH}h × β = ${dayH} × ${beta.toFixed(2)}`,
+      hours: boilerH, days, opName: _opName, result: v10, isHeat: true
+    }) : `<div class="tt-title">${months[m]} · 보일러(전기)</div><div class="tt-note">${cool?'냉방월 — 미운전':'부하 0 — 미운전'}</div>`);
+
+    // 11: 난방 순환펌프
+    equipmentRows[11].tips.push(!cool && beta > 0 ? tipKwh({
+      title: mL + '펌프(난방 순환)',
+      perUnit: u_heatPump, count: heatN, total: heatPump, conditions: condHeat,
+      hrFormula: `${dayH}h × β = ${dayH} × ${beta.toFixed(2)}`,
+      hours: boilerH, days, opName: _opName, result: v11, isHeat: true
+    }) : `<div class="tt-title">${months[m]} · 난방펌프</div><div class="tt-note">${cool?'냉방월 — 미운전':'부하 0 — 미운전'}</div>`);
+
+    // 가스 사용량
+    gasTips.push(!cool && beta > 0 ? tipGas({
+      title: mL + '보일러(난방용, 가스)',
+      perUnit: u_boilerGas, count: heatN, total: boilerGas,
+      hrFormula: `${dayH}h × β = ${dayH} × ${beta.toFixed(2)}`,
+      hours: boilerH, days, opName: _opName, result: gasV, isHeat: true,
+      note: '난방 운전 시 가스 직접 연소'
+    }) : `<div class="tt-title">${months[m]} · 보일러 가스</div><div class="tt-note">${cool?'냉방월 — 미사용':'부하 0 — 미사용'}</div>`);
   }
 
   const totalKwh = new Array(12).fill(0);
@@ -1150,49 +2038,150 @@ function calculate() {
     `야간 ${Math.round(nT/1000)}k / 주간빙축 ${Math.round(iT/1000)}k / 일반 ${Math.round(gT/1000)}k kWh`;
 
   const od = [];
-  for (let m = 0; m < 12; m++) od.push(getOpDays(m));
-  const patName = state.opPattern === 'office' ? '오피스 (2026년 평일)' : state.opPattern === 'commercial' ? '상업시설 (전일)' : '일괄기입';
+  for (let m = 0; m < 12; m++) od.push(iceGetOpDays(m));
+  const patName = iceState.opPattern === 'office' ? '오피스 (2026년 평일)' : iceState.opPattern === 'commercial' ? '상업시설 (전일)' : '일괄기입';
   let odHtml = `<strong>${patName}</strong> · 월별 운전일수<br>`;
   odHtml += od.map((d,i) => `${months[i]} ${d}일`).slice(0,6).join(' · ') + '<br>';
   odHtml += od.map((d,i) => `${months[i]} ${d}일`).slice(6).join(' · ');
   odHtml += `<br><strong>연 ${od.reduce((a,b)=>a+b,0)}일</strong>`;
   document.getElementById('opDaysDisplay').innerHTML = odHtml;
 
+  // === 비용 행 툴팁 생성 ===
+  const tipsIceBase = [], tipsGenBase = [], tipsNightCost = [], tipsIceDayCost = [], tipsGenCost = [];
+  const tipsGasUseCost = [], tipsGasTotal = [], tipsElec = [], tipsCombined = [];
+  for (let m = 0; m < 12; m++) {
+    const totalIce = nightUse[m] + iceDayUse[m];
+    const dayRatio = totalIce > 0 ? iceDayUse[m] / totalIce : 0;
+    const perKW = Math.max(rateBaseIce * dayRatio, rateMinIce);
+    const dayRatioPct = (dayRatio*100).toFixed(1);
+    tipsIceBase.push(tipBase({
+      title: months[m] + ' · 심야전기 기본요금',
+      connKW: iceConnKW, perKW,
+      perKWFormula: `max(${rateBaseIce} × ${dayRatioPct}% 주간비율, ${rateMinIce} 최저) = ${fmtFix(perKW,1)} 원/kW`,
+      result: monthlyIceBase[m],
+      note: '심야전기는 주간 사용량 비율에 따라 기본요금 가중치 결정'
+    }));
+
+    tipsGenBase.push(tipBase({
+      title: months[m] + ' · 일반전기 기본요금',
+      connKW: genConnKW, perKW: t.base,
+      perKWFormula: `${tier} · ${fmtFix(t.base,0)} 원/kW (정액)`,
+      result: monthlyGenBase[m]
+    }));
+
+    tipsNightCost.push(nightUse[m] > 0.5 ? tipUseCost({
+      title: months[m] + ' · 심야 사용요금(야간)',
+      kwh: nightUse[m], rate: rateNight, result: monthlyNightCost[m],
+      rateLabel: '(심야 야간 단가)'
+    }) : `<div class="tt-title">${months[m]} · 심야 야간</div><div class="tt-note">야간 운전 없음</div>`);
+
+    tipsIceDayCost.push(iceDayUse[m] > 0.5 ? tipUseCost({
+      title: months[m] + ' · 심야 사용요금(주간)',
+      kwh: iceDayUse[m], rate: rateIceDay, result: monthlyIceDayCost[m],
+      rateLabel: '(심야 주간 단가)'
+    }) : `<div class="tt-title">${months[m]} · 심야 주간</div><div class="tt-note">주간 추가 운전 없음</div>`);
+
+    tipsGenCost.push(generalUse[m] > 0.5 ? tipUseCost({
+      title: months[m] + ' · 일반전기 사용요금',
+      kwh: generalUse[m], rate: rateGeneral, result: monthlyGenCost[m],
+      rateLabel: `(${tier})`
+    }) : `<div class="tt-title">${months[m]} · 일반전기</div><div class="tt-note">일반전기 사용 없음</div>`);
+
+    tipsGasUseCost.push(gasUse[m] > 0.5 ? tipGasCost({
+      title: months[m] + ' · 가스 사용요금',
+      gasNm3: gasUse[m], gasHeat, rate: gr[m], result: monthlyGasUseCost[m]
+    }) : `<div class="tt-title">${months[m]} · 가스 사용요금</div><div class="tt-note">난방 미운전</div>`);
+
+    tipsGasTotal.push(gasUse[m] > 0.5 ? (
+      `<div class="tt-title">${months[m]} · 가스료 총계</div>` +
+      `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원</span></div>` +
+      `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(monthlyGasVat[m])} 원</span></div>` +
+      `<div class="tt-formula">${fmt(monthlyGasUseCost[m])} × 1.1</div>` +
+      `<div class="tt-result">= ${fmt(monthlyGasTotal[m])} 원</div>`
+    ) : `<div class="tt-title">${months[m]} · 가스료</div><div class="tt-note">난방 미운전</div>`);
+
+    tipsElec.push(tipElecTotal({
+      title: months[m] + ' · 전기료 총계',
+      base: monthlyBase[m], useCost: monthlyUseCost[m],
+      vat: monthlyVat[m], result: monthlyElec[m], aiOn: false
+    }));
+
+    tipsCombined.push(tipGrandTotal({
+      title: months[m] + ' · 월 운전비 합계',
+      elec: monthlyElec[m], gas: monthlyGasTotal[m],
+      result: monthlyCombined[m], monthLabel: months[m]
+    }));
+  }
+
   // Build tables
-  const elecUseRows = equipmentRows.filter(r => r.vals.some(v => v > 0.5)).map(r => ({ label: r.label, values: r.vals }));
-  elecUseRows.push({ label: '전기 사용량 합계', values: totalKwh, cls: 'total' });
+  const elecUseRows = equipmentRows.filter(r => r.vals.some(v => v > 0.5)).map(r => ({
+    label: r.label, values: r.vals, tips: r.tips,
+    sumTip: tipSum({title: r.label, values: r.vals, unit: 'kWh'})
+  }));
+  elecUseRows.push({
+    label: '전기 사용량 합계', values: totalKwh, cls: 'total',
+    tips: totalKwh.map((v,i) =>
+      `<div class="tt-title">${months[i]} · 전기 사용량 합계</div>` +
+      `<div class="tt-line"><span class="k">계산방식</span> <span class="v">위 12개 장비 합산</span></div>` +
+      `<div class="tt-line"><span class="k">야간</span> <span class="v">${fmt(nightUse[i])} kWh</span></div>` +
+      `<div class="tt-line"><span class="k">주간 빙축</span> <span class="v">${fmt(iceDayUse[i])} kWh</span></div>` +
+      `<div class="tt-line"><span class="k">일반</span> <span class="v">${fmt(generalUse[i])} kWh</span></div>` +
+      `<div class="tt-formula">야간 + 주간빙축 + 일반</div>` +
+      `<div class="tt-result">= ${fmt(v)} kWh</div>`
+    ),
+    sumTip: tipSum({title: '전기 사용량 합계', values: totalKwh, unit: 'kWh',
+      note: `야간 ${fmt(nightUse.reduce((a,b)=>a+b,0))} · 주간빙축 ${fmt(iceDayUse.reduce((a,b)=>a+b,0))} · 일반 ${fmt(generalUse.reduce((a,b)=>a+b,0))}`})
+  });
   document.getElementById('elecUseTable').innerHTML = buildTable(elecUseRows);
 
   document.getElementById('gasUseTable').innerHTML = buildTable([
-    { label: '보일러(난방용)', values: gasUse },
-    { label: '가스 사용량 합계', values: gasUse, cls: 'total' }
+    { label: '보일러(난방용)', values: gasUse, tips: gasTips, sumTip: tipSum({title:'보일러 가스 사용량', values: gasUse, unit:'N㎥', note:'11~4월 난방기간 합산'}) },
+    { label: '가스 사용량 합계', values: gasUse, cls: 'total', tips: gasTips, sumTip: tipSum({title:'가스 사용량 합계', values: gasUse, unit:'N㎥'}) }
   ]);
 
   const elecCostRows = [
-    { label: `심야전기 기본요금 (빙축 ${iceConnKW.toFixed(1)}kW)`, values: monthlyIceBase },
-    { label: `일반전기 기본요금 (${genConnKW.toFixed(1)}kW)`, values: monthlyGenBase },
-    { label: `심야 사용요금(야간) ${rateNight}원/kWh`, values: monthlyNightCost },
-    { label: `심야 사용요금(주간) ${rateIceDay}원/kWh`, values: monthlyIceDayCost },
-    { label: `일반전기 사용요금 ${rateGeneral}원/kWh`, values: monthlyGenCost },
-    { label: '전기료 총계 (부가세 포함)', values: monthlyElec, cls: 'total' }
+    { label: `심야전기 기본요금 (빙축 ${iceConnKW.toFixed(1)}kW)`, values: monthlyIceBase, tips: tipsIceBase,
+      sumTip: tipSum({title:'심야전기 기본요금', values: monthlyIceBase, unit:'원'}) },
+    { label: `일반전기 기본요금 (${genConnKW.toFixed(1)}kW)`, values: monthlyGenBase, tips: tipsGenBase,
+      sumTip: tipSum({title:'일반전기 기본요금', values: monthlyGenBase, unit:'원'}) },
+    { label: `심야 사용요금(야간) ${rateNight}원/kWh`, values: monthlyNightCost, tips: tipsNightCost,
+      sumTip: tipSum({title:'심야 사용요금(야간)', values: monthlyNightCost, unit:'원'}) },
+    { label: `심야 사용요금(주간) ${rateIceDay}원/kWh`, values: monthlyIceDayCost, tips: tipsIceDayCost,
+      sumTip: tipSum({title:'심야 사용요금(주간)', values: monthlyIceDayCost, unit:'원'}) },
+    { label: `일반전기 사용요금 ${rateGeneral}원/kWh`, values: monthlyGenCost, tips: tipsGenCost,
+      sumTip: tipSum({title:'일반전기 사용요금', values: monthlyGenCost, unit:'원'}) },
+    { label: '전기료 총계 (부가세 포함)', values: monthlyElec, cls: 'total', tips: tipsElec,
+      sumTip: tipSum({title:'연간 전기료 총계', values: monthlyElec, unit:'원'}) }
   ];
   document.getElementById('elecCostTable').innerHTML = buildTable(elecCostRows);
 
   const gasCostRows = [
-    { label: '사용요금 (가스 × 발열량 × 단가)', values: monthlyGasUseCost },
-    { label: '가스료 총계 (부가세 포함)', values: monthlyGasTotal, cls: 'total' }
+    { label: '사용요금 (가스 × 발열량 × 단가)', values: monthlyGasUseCost, tips: tipsGasUseCost,
+      sumTip: tipSum({title:'가스 사용요금', values: monthlyGasUseCost, unit:'원'}) },
+    { label: '가스료 총계 (부가세 포함)', values: monthlyGasTotal, cls: 'total', tips: tipsGasTotal,
+      sumTip: tipSum({title:'연간 가스료 총계', values: monthlyGasTotal, unit:'원'}) }
   ];
   document.getElementById('gasCostTable').innerHTML = buildTable(gasCostRows);
 
   const totalRows = [
-    { label: '월 운전비 합계 (전기료 + 가스료, 부가세 포함)', values: monthlyCombined, cls: 'total' }
+    { label: '월 운전비 합계 (전기료 + 가스료, 부가세 포함)', values: monthlyCombined, cls: 'total', tips: tipsCombined,
+      sumTip: `<div class="tt-title">연간 총 운전비</div>` +
+        `<div class="tt-line"><span class="k">연간 전기료</span> <span class="v">${fmt(totalElec)} 원</span></div>` +
+        `<div class="tt-line"><span class="k">연간 가스료</span> <span class="v">${fmt(totalGas)} 원</span></div>` +
+        `<div class="tt-formula">${fmt(totalElec)} + ${fmt(totalGas)}</div>` +
+        `<div class="tt-result">= ${fmt(totalAll)} 원</div>` }
   ];
   document.getElementById('totalCostTable').innerHTML = buildTable(totalRows);
 
-  // Cache for downloads
-  latestCalc = {
-    tier, t,
-    iceN, normN, heatN,
+  // 모든 표에 툴팁 부착
+  attachTooltips('#elecUseTable', false);
+  attachTooltips('#gasUseTable', false);
+  attachTooltips('#elecCostTable', false);
+  attachTooltips('#gasCostTable', false);
+  attachTooltips('#totalCostTable', false);
+
+  iceLatestCalc = {
+    tier, t, iceN, normN, heatN,
     iceConnKW, genConnKW,
     rateNight, rateIceDay, rateGeneral, rateBaseIce, rateMinIce, gasHeat,
     inputs: {
@@ -1206,7 +2195,7 @@ function calculate() {
       dayHours: dayH, nightHours: nightH, alpha: alpha
     },
     monthlyDays: od,
-    loadFactors: [...loadFactors],
+    loadFactors: [...iceLoadFactors],
     equipmentRows: equipmentRows.filter(r => r.vals.some(v => v > 0.5)),
     totalKwh, gasUse,
     nightUse, iceDayUse, generalUse,
@@ -1216,19 +2205,21 @@ function calculate() {
     monthlyGasUseCost, monthlyGasVat, monthlyGasTotal,
     monthlyCombined,
     totalElecKwh, totalGasNm3, totalElec, totalGas, totalAll,
-    gr
+    gr,
+    opPattern: iceState.opPattern
   };
+  updateCmpBadges();
 }
 
-function resetDefaults() {
-  state.iceCount = 2; state.normalCount = 2; state.heatCount = 2;
-  state.opPattern = 'office';
+function iceResetDefaults() {
+  iceState.iceCount = 2; iceState.normalCount = 2; iceState.heatCount = 2;
+  iceState.opPattern = 'office';
   document.querySelector('input[name="opPattern"][value="office"]').checked = true;
   document.getElementById('fixedDaysRow').style.display = 'none';
-  document.querySelectorAll('.count-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector('.count-btn[data-target="iceCount"][data-val="2"]').classList.add('active');
-  document.querySelector('.count-btn[data-target="normalCount"][data-val="2"]').classList.add('active');
-  document.querySelector('.count-btn[data-target="heatCount"][data-val="2"]').classList.add('active');
+  document.querySelectorAll('#tab-ice .count-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('#tab-ice .count-btn[data-target="iceCount"][data-val="2"]').classList.add('active');
+  document.querySelector('#tab-ice .count-btn[data-target="normalCount"][data-val="2"]').classList.add('active');
+  document.querySelector('#tab-ice .count-btn[data-target="heatCount"][data-val="2"]').classList.add('active');
   const defaults = {
     fixedDays: 20, dayHours: 10, nightHours: 10, storageRatio: 45,
     iceTurboDay: 216.1, iceTurboNight: 186.9, iceCT: 45,
@@ -1243,25 +2234,887 @@ function resetDefaults() {
     if (el) el.value = v;
   }
   document.getElementById('tierSelect').value = '고압A 선택Ⅱ';
-  updateTierInfo();
-  applyTierToField();
-  buildGasGrid();
-  loadFactors = [...defaultLoadFactors];
-  renderChartBars();
-  buildChartValues();
-  attachAllListeners();
-  calculate();
+  iceUpdateTierInfo();
+  iceApplyTierToField();
+  iceBuildGasGrid();
+  iceLoadFactors = [...defaultLoadFactors];
+  iceRenderChartBars();
+  iceBuildChartValues();
+  iceAttachAllListeners();
+  iceCalculate();
 }
 
-function attachAllListeners() {
-  document.querySelectorAll('.panel.input-panel input[type=number]').forEach(el => {
+function iceAttachAllListeners() {
+  document.querySelectorAll('#tab-ice .panel.input-panel input[type=number]').forEach(el => {
     if (el.classList.contains('cv-input')) return;
-    el.removeEventListener('input', calculate);
-    el.addEventListener('input', calculate);
+    el.removeEventListener('input', iceCalculate);
+    el.addEventListener('input', iceCalculate);
   });
 }
 
-/* ===== Excel Download ===== */
+/* ============================================================
+   ABS (흡수식) CALCULATOR
+   ============================================================ */
+const absState = {
+  absCount: 2,
+  opPattern: 'office',
+  aiOn: false
+};
+let absLoadFactors = [...altLoadFactors];
+let absLatestCalc = null;
+
+function absBuildGasGrid() {
+  const c = document.getElementById('aGasRateGrid');
+  c.innerHTML = '';
+  for (let i = 0; i < 12; i++) {
+    const div = document.createElement('div');
+    const cool = coolingSet.has(i);
+    div.className = 'month-input-cell ' + (cool ? 'cooling' : 'heating');
+    div.innerHTML = `<label>${months[i]}</label><input type="number" id="agr${i}" value="${defaultGasRates[i]}" step="0.01">`;
+    c.appendChild(div);
+  }
+}
+
+function absBuildTierSelect() {
+  const sel = document.getElementById('aTierSelect');
+  sel.innerHTML = '';
+  for (const t of Object.keys(TIERS)) {
+    const o = document.createElement('option');
+    o.value = t;
+    o.textContent = t + '  ·  기본요금 ' + TIERS[t].base.toLocaleString() + '원/kW';
+    if (t === '고압A 선택Ⅱ') o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => { absUpdateTierInfo(); absApplyTierToField(); absCalculate(); };
+}
+
+function absUpdateTierInfo() {
+  const tier = document.getElementById('aTierSelect').value;
+  const t = TIERS[tier];
+  document.getElementById('aTierInfo').innerHTML =
+    `<strong>${tier}</strong> · 기본요금 <strong>${t.base.toLocaleString()}원/kW</strong><br>` +
+    `중간부하 단가(원/kWh) — 여름 <strong>${t.summer}</strong> / 봄·가을 <strong>${t.spring}</strong> / 겨울 <strong>${t.winter}</strong>`;
+}
+
+function absApplyTierToField() {
+  const tier = document.getElementById('aTierSelect').value;
+  const t = TIERS[tier];
+  const avg = (t.summer*3 + t.spring*5 + t.winter*4) / 12;
+  document.getElementById('aRateGeneral').value = avg.toFixed(1);
+}
+
+function absAttachCountButtons() {
+  document.querySelectorAll('#tab-abs .count-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tgt = this.dataset.atarget;
+      const val = parseInt(this.dataset.val);
+      document.querySelectorAll(`#tab-abs .count-btn[data-atarget="${tgt}"]`).forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      absState[tgt] = val;
+      absCalculate();
+    });
+  });
+}
+
+function absAttachRadios() {
+  document.querySelectorAll('input[name="aOpPattern"]').forEach(r => {
+    r.addEventListener('change', function() {
+      absState.opPattern = this.value;
+      document.getElementById('aFixedDaysRow').style.display = this.value === 'fixed' ? '' : 'none';
+      absCalculate();
+    });
+  });
+}
+
+function absGetOpDays(m) {
+  if (absState.opPattern === 'office') return days2026.weekdays[m];
+  if (absState.opPattern === 'commercial') return days2026.total[m];
+  return parseFloat(document.getElementById('aFixedDays').value) || 20;
+}
+
+function absRenderChartBars() {
+  const svg = document.getElementById('aLoadChart');
+  const W = 600, H = 200;
+  const padL = 30, padR = 8, padT = 12, padB = 28;
+  const cw = W - padL - padR;
+  const ch = H - padT - padB;
+  const barW = cw / 12;
+  const innerBarW = barW - 6;
+  let html = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (ch * i / 4);
+    const v = 100 - i * 25;
+    html += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"></line>`;
+    html += `<text class="axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${v}%</text>`;
+  }
+  for (let i = 0; i < 12; i++) {
+    const cls = coolingSet.has(i) ? 'cooling' : 'heating';
+    const v = Math.max(0, Math.min(100, absLoadFactors[i]));
+    const barH = (v / 100) * ch;
+    const x = padL + barW * i + 3;
+    const y = padT + ch - barH;
+    html += `<rect class="bar ${cls}" x="${x}" y="${y}" width="${innerBarW}" height="${barH}" rx="3"></rect>`;
+    if (v >= 10) {
+      html += `<text class="value-label" x="${padL + barW * i + barW/2}" y="${y + 12}" text-anchor="middle">${v.toFixed(0)}</text>`;
+    }
+    html += `<text class="axis-label" x="${padL + barW * i + barW/2}" y="${H - padB + 14}" text-anchor="middle">${months[i]}</text>`;
+  }
+  svg.innerHTML = html;
+}
+
+function absBuildChartValues() {
+  const container = document.getElementById('aLoadValuesRow');
+  let html = '';
+  for (let i = 0; i < 12; i++) {
+    const cool = coolingSet.has(i);
+    html += `<div class="chart-value-cell ${cool?'cool':'heat'}"><input type="number" class="cv-input" data-month="${i}" min="0" max="100" step="1" value="${Math.round(absLoadFactors[i])}"></div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.cv-input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const idx = parseInt(e.target.dataset.month);
+      let v = parseFloat(e.target.value);
+      if (isNaN(v)) v = 0;
+      v = Math.max(0, Math.min(100, v));
+      absLoadFactors[idx] = v;
+      absRenderChartBars();
+      absCalculate();
+    });
+  });
+}
+
+function absUpdateChartValuesOnly() {
+  document.querySelectorAll('#tab-abs .cv-input').forEach((inp, i) => {
+    if (document.activeElement !== inp) inp.value = Math.round(absLoadFactors[i]);
+  });
+}
+
+function absHandleChartInteraction(clientX, clientY) {
+  const svg = document.getElementById('aLoadChart');
+  const rect = svg.getBoundingClientRect();
+  const x = (clientX - rect.left) * (600 / rect.width);
+  const y = (clientY - rect.top) * (200 / rect.height);
+  const padL = 30, padT = 12, padR = 8, padB = 28;
+  const cw = 600 - padL - padR;
+  const ch = 200 - padT - padB;
+  const barW = cw / 12;
+  const idx = Math.floor((x - padL) / barW);
+  if (idx < 0 || idx > 11) return;
+  let v = ((padT + ch - y) / ch) * 100;
+  v = Math.max(0, Math.min(100, v));
+  absLoadFactors[idx] = Math.round(v);
+  absRenderChartBars();
+  absUpdateChartValuesOnly();
+  absCalculate();
+}
+
+function absAttachChartEvents() {
+  const svg = document.getElementById('aLoadChart');
+  let drag = false;
+  svg.addEventListener('mousedown', e => { drag = true; absHandleChartInteraction(e.clientX, e.clientY); e.preventDefault(); });
+  svg.addEventListener('mousemove', e => { if (drag) absHandleChartInteraction(e.clientX, e.clientY); });
+  document.addEventListener('mouseup', () => { drag = false; });
+  svg.addEventListener('touchstart', e => { drag = true; const t = e.touches[0]; absHandleChartInteraction(t.clientX, t.clientY); e.preventDefault(); }, {passive: false});
+  svg.addEventListener('touchmove', e => { if (drag) { const t = e.touches[0]; absHandleChartInteraction(t.clientX, t.clientY); e.preventDefault(); } }, {passive: false});
+  document.addEventListener('touchend', () => { drag = false; });
+}
+
+function autoCalcAbsGas() {
+  const usrt = num('aUSRT');
+  const cop = num('aCOP');
+  const etaHeat = num('aEtaHeat') / 100;
+  const heatRatio = num('aHeatRatio') / 100;
+  const gasHeat = num('aGasHeat');
+  if (cop <= 0 || etaHeat <= 0 || gasHeat <= 0) return;
+  // 1 USRT = 3024 kcal/h
+  // 가스발열량 kcal/N㎥ = MJ/N㎥ × 1000 / 4.186
+  const gasKcal = gasHeat * 1000 / 4.186;
+  const gasCool = (usrt * 3024) / cop / gasKcal;
+  const gasHeatN = (usrt * 3024 * heatRatio) / etaHeat / gasKcal;
+  document.getElementById('aGasCool').value = gasCool.toFixed(1);
+  document.getElementById('aGasHeatRate').value = gasHeatN.toFixed(1);
+  absCalculate();
+}
+
+function absCalculate() {
+  const tier = document.getElementById('aTierSelect').value;
+  const t = TIERS[tier];
+
+  const dayH = num('aDayHours');
+  const N = absState.absCount;
+
+  const usrt = num('aUSRT');
+  const cop = num('aCOP');
+  const etaHeat = num('aEtaHeat') / 100;
+  const heatRatio = num('aHeatRatio') / 100;
+
+  const ratedGasCool = num('aGasCool');     // 대당 N㎥/h
+  const ratedGasHeat = num('aGasHeatRate'); // 대당 N㎥/h
+  const auxCool = num('aAuxCool');          // 대당 kW
+  const auxHeat = num('aAuxHeat');          // 대당 kW
+  const ctKW = num('aCT');                  // 대당 kW
+  const cwpKW = num('aCWP');                // 대당 kW
+  const chwpKW = num('aCHWP');              // 대당 kW
+
+  const rateGeneral = num('aRateGeneral');
+  const gasHeat = num('aGasHeat');
+
+  const aiOn = document.getElementById('aAiCheckbox').checked;
+  absState.aiOn = aiOn;
+  const aiFactor = aiOn ? 0.89 : 1.0;  // 사용요금 11% 감면
+
+  document.getElementById('aAiToggle').classList.toggle('active', aiOn);
+
+  const gr = [];
+  for (let i = 0; i < 12; i++) gr.push(num('agr' + i));
+
+  // 장비별 사용량
+  const equipmentRows = [
+    { label: '흡수식 냉온수기(본체 보조전력, 냉방)', vals: [], tips: [], cool: true },
+    { label: '흡수식 냉온수기(본체 보조전력, 난방)', vals: [], tips: [], cool: false },
+    { label: '냉각탑', vals: [], tips: [], cool: true },
+    { label: '냉각수 순환펌프', vals: [], tips: [], cool: true },
+    { label: '냉온수 순환펌프(냉방)', vals: [], tips: [], cool: true },
+    { label: '냉온수 순환펌프(난방)', vals: [], tips: [], cool: false }
+  ];
+  const gasUse = new Array(12).fill(0);
+  const gasTips = [];
+
+  const _absOpName = absState.opPattern === 'office' ? '오피스 평일' : absState.opPattern === 'commercial' ? '상업시설 전일' : '일괄기입';
+
+  for (let m = 0; m < 12; m++) {
+    const beta = absLoadFactors[m] / 100;
+    const cool = coolingSet.has(m);
+    const days = absGetOpDays(m);
+    const opH = dayH * beta;  // 부하반영 운전시간
+    const betaPct = (beta*100).toFixed(0);
+    const mL = months[m] + ' · ';
+    const cond = `월부하율 β=${betaPct}%`;
+    const hrF = `${dayH}h × β = ${dayH} × ${beta.toFixed(2)}`;
+
+    let r0=0, r1=0, r2=0, r3=0, r4=0, r5=0, gv=0;
+    if (cool && beta > 0) {
+      r0 = auxCool * N * days * opH;
+      r2 = ctKW * N * days * opH;
+      r3 = cwpKW * N * days * opH;
+      r4 = chwpKW * N * days * opH;
+      gv = ratedGasCool * N * days * opH;
+    } else if (!cool && beta > 0) {
+      r1 = auxHeat * N * days * opH;
+      r5 = chwpKW * N * days * opH;
+      gv = ratedGasHeat * N * days * opH;
+    }
+    equipmentRows[0].vals.push(r0);
+    equipmentRows[1].vals.push(r1);
+    equipmentRows[2].vals.push(r2);
+    equipmentRows[3].vals.push(r3);
+    equipmentRows[4].vals.push(r4);
+    equipmentRows[5].vals.push(r5);
+    gasUse[m] = gv;
+
+    // ===== 툴팁 생성 =====
+    const cWord = `${months[m]} (${cool?'냉방월':'난방월'})`;
+
+    equipmentRows[0].tips.push(cool && beta > 0 ? tipKwh({
+      title: mL + '흡수식 냉온수기(본체 보조전력, 냉방)',
+      perUnit: auxCool, count: N, total: auxCool*N, conditions: cond,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: r0,
+      note: '흡수식 본체의 펌프·제어부 전력'
+    }) : `<div class="tt-title">${cWord} · 본체(냉방)</div><div class="tt-note">${cool?'부하 0':'난방월 — 미운전'}</div>`);
+
+    equipmentRows[1].tips.push(!cool && beta > 0 ? tipKwh({
+      title: mL + '흡수식 냉온수기(본체 보조전력, 난방)',
+      perUnit: auxHeat, count: N, total: auxHeat*N, conditions: cond,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: r1, isHeat: true,
+      note: '난방 운전 시 흡수식 본체 전력 (냉방 대비 다소 높음)'
+    }) : `<div class="tt-title">${cWord} · 본체(난방)</div><div class="tt-note">${cool?'냉방월 — 미운전':'부하 0'}</div>`);
+
+    equipmentRows[2].tips.push(cool && beta > 0 ? tipKwh({
+      title: mL + '냉각탑',
+      perUnit: ctKW, count: N, total: ctKW*N, conditions: cond,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: r2,
+      note: '냉방 시만 운전 (난방 시 미사용)'
+    }) : `<div class="tt-title">${cWord} · 냉각탑</div><div class="tt-note">${cool?'부하 0':'난방월 — 미운전'}</div>`);
+
+    equipmentRows[3].tips.push(cool && beta > 0 ? tipKwh({
+      title: mL + '냉각수 순환펌프',
+      perUnit: cwpKW, count: N, total: cwpKW*N, conditions: cond,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: r3,
+      note: '냉방 시만 운전 (대온도차 시스템)'
+    }) : `<div class="tt-title">${cWord} · 냉각수 펌프</div><div class="tt-note">${cool?'부하 0':'난방월 — 미운전'}</div>`);
+
+    equipmentRows[4].tips.push(cool && beta > 0 ? tipKwh({
+      title: mL + '냉온수 순환펌프(냉방)',
+      perUnit: chwpKW, count: N, total: chwpKW*N, conditions: cond,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: r4,
+      note: '냉방 시 냉수 송수'
+    }) : `<div class="tt-title">${cWord} · 냉온수펌프(냉방)</div><div class="tt-note">${cool?'부하 0':'난방월 — 미운전'}</div>`);
+
+    equipmentRows[5].tips.push(!cool && beta > 0 ? tipKwh({
+      title: mL + '냉온수 순환펌프(난방)',
+      perUnit: chwpKW, count: N, total: chwpKW*N, conditions: cond,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: r5, isHeat: true,
+      note: '난방 시 온수 송수 (동일 배관 공용)'
+    }) : `<div class="tt-title">${cWord} · 냉온수펌프(난방)</div><div class="tt-note">${cool?'냉방월 — 미운전':'부하 0'}</div>`);
+
+    gasTips.push(beta > 0 ? tipGas({
+      title: mL + `흡수식 냉온수기 (${cool?'냉방':'난방'} 가스)`,
+      perUnit: cool ? ratedGasCool : ratedGasHeat, count: N,
+      total: (cool?ratedGasCool:ratedGasHeat)*N,
+      hrFormula: hrF, hours: opH, days, opName: _absOpName, result: gv, isHeat: !cool,
+      note: cool ? `냉방 운전 (COP=${cop}, 직화식)` : `난방 운전 (η=${(etaHeat*100).toFixed(0)}%)`
+    }) : `<div class="tt-title">${months[m]} · 가스</div><div class="tt-note">부하 0 — 미사용</div>`);
+  }
+
+  const totalKwh = new Array(12).fill(0);
+  for (const row of equipmentRows) for (let m = 0; m < 12; m++) totalKwh[m] += row.vals[m];
+
+  // 연결동력 산정: 냉방 시 최대 (흡수식이 냉방 시가 최대 부하)
+  const connKWCool = (auxCool + ctKW + cwpKW + chwpKW) * N;
+  const connKWHeat = (auxHeat + chwpKW) * N;
+  const connKW = Math.max(connKWCool, connKWHeat);
+
+  // 기본요금: 매월 동일
+  const monthlyBase = new Array(12).fill(connKW * t.base);
+  const monthlyUseCostPre = totalKwh.map(v => v * rateGeneral);
+  const monthlyUseCost = monthlyUseCostPre.map(v => v * aiFactor);  // AI 적용
+  const monthlyPreVat = monthlyBase.map((v, i) => v + monthlyUseCost[i]);
+  const monthlyVat = monthlyPreVat.map(v => v * 0.1);
+  const monthlyElec = monthlyPreVat.map((v, i) => v + monthlyVat[i]);
+
+  // 가스요금
+  const monthlyGasUseCostPre = gasUse.map((v, m) => v * gasHeat * gr[m]);
+  const monthlyGasUseCost = monthlyGasUseCostPre.map(v => v * aiFactor);
+  const monthlyGasVat = monthlyGasUseCost.map(v => v * 0.1);
+  const monthlyGasTotal = monthlyGasUseCost.map((v, i) => v + monthlyGasVat[i]);
+
+  const monthlyCombined = monthlyElec.map((v, i) => v + monthlyGasTotal[i]);
+
+  const totalElecKwh = totalKwh.reduce((a,b)=>a+b, 0);
+  const totalGasNm3 = gasUse.reduce((a,b)=>a+b, 0);
+  const totalElec = monthlyElec.reduce((a,b)=>a+b, 0);
+  const totalGas = monthlyGasTotal.reduce((a,b)=>a+b, 0);
+  const totalAll = totalElec + totalGas;
+  const totalUseCostPre = monthlyUseCostPre.reduce((a,b)=>a+b, 0);
+  const totalGasUseCostPre = monthlyGasUseCostPre.reduce((a,b)=>a+b, 0);
+  const aiSavingElec = totalUseCostPre * 0.11 * 1.1;  // VAT 포함 절감액
+  const aiSavingGas = totalGasUseCostPre * 0.11 * 1.1;
+  const aiSavingTotal = aiOn ? (aiSavingElec + aiSavingGas) : 0;
+
+  // 결과 표시
+  document.getElementById('aTotalElecKwh').textContent = totalElecKwh.toLocaleString('ko-KR', {maximumFractionDigits:0}) + ' kWh';
+  document.getElementById('aTotalGasNm3').textContent = totalGasNm3.toLocaleString('ko-KR', {maximumFractionDigits:0}) + ' N㎥';
+  document.getElementById('aTotalSplit').textContent = fmtEok(totalElec) + ' / ' + fmtEok(totalGas);
+  document.getElementById('aTotalAll').textContent = fmtWon(totalAll);
+  document.getElementById('aTotalSub').textContent = '월평균 ' + fmtWon(totalAll/12) + (aiOn ? ' · AI절감 ' + fmtWon(aiSavingTotal) : '');
+  const coolGas = gasUse.filter((v,m)=>coolingSet.has(m)).reduce((a,b)=>a+b,0);
+  const heatGas = totalGasNm3 - coolGas;
+  document.getElementById('aGasBreakdown').textContent = `냉방 ${Math.round(coolGas/1000)}k / 난방 ${Math.round(heatGas/1000)}k N㎥`;
+  document.getElementById('aElecBreakdown').textContent = `${aiOn?'AI적용 ':''}${connKW.toFixed(1)} kW 연결동력 (냉방기준)`;
+  document.getElementById('aSplitSub').textContent = aiOn ? `AI 적용 (사용요금 11% 감면)` : `AI 미적용`;
+
+  // 운전일수 표시
+  const od = [];
+  for (let m = 0; m < 12; m++) od.push(absGetOpDays(m));
+  const patName = absState.opPattern === 'office' ? '오피스 (2026년 평일)' : absState.opPattern === 'commercial' ? '상업시설 (전일)' : '일괄기입';
+  let odHtml = `<strong>${patName}</strong> · 월별 운전일수<br>`;
+  odHtml += od.map((d,i) => `${months[i]} ${d}일`).slice(0,6).join(' · ') + '<br>';
+  odHtml += od.map((d,i) => `${months[i]} ${d}일`).slice(6).join(' · ');
+  odHtml += `<br><strong>연 ${od.reduce((a,b)=>a+b,0)}일</strong>`;
+  document.getElementById('aOpDaysDisplay').innerHTML = odHtml;
+
+  // ===== 비용 행 툴팁 =====
+  const tipsBase = [], tipsUsePre = [], tipsUseAI = [], tipsElec = [];
+  const tipsGasUsePre = [], tipsGasUseAI = [], tipsGasTotal = [], tipsCombined = [];
+  for (let m = 0; m < 12; m++) {
+    tipsBase.push(tipBase({
+      title: months[m] + ' · 일반전기 기본요금',
+      connKW, perKW: t.base,
+      perKWFormula: `${tier} · ${fmtFix(t.base,0)} 원/kW (정액)`,
+      result: monthlyBase[m],
+      note: '냉방기준 연결동력 (계산식: 본체+냉각탑+냉각수펌프+냉온수펌프)'
+    }));
+    tipsUsePre.push(totalKwh[m] > 0.5 ? tipUseCost({
+      title: months[m] + ' · 일반전기 사용요금(정상)',
+      kwh: totalKwh[m], rate: rateGeneral, result: monthlyUseCostPre[m],
+      rateLabel: `(${tier})`
+    }) : `<div class="tt-title">${months[m]} · 사용요금</div><div class="tt-note">부하 0 — 미운전</div>`);
+    if (aiOn) {
+      tipsUseAI.push(monthlyUseCostPre[m] > 0.5 ? tipAISaving({
+        title: months[m] + ' · AI통합제어 적용 사용요금',
+        original: monthlyUseCostPre[m], rateAI: 0.89, result: monthlyUseCost[m], kind: '사용요금'
+      }) : `<div class="tt-title">${months[m]} · AI 사용요금</div><div class="tt-note">기본 사용요금 없음</div>`);
+    }
+    tipsElec.push(tipElecTotal({
+      title: months[m] + ' · 전기료 총계',
+      base: monthlyBase[m], useCost: monthlyUseCostPre[m], useCostAI: monthlyUseCost[m],
+      vat: monthlyVat[m], result: monthlyElec[m], aiOn
+    }));
+
+    tipsGasUsePre.push(gasUse[m] > 0.5 ? tipGasCost({
+      title: months[m] + ' · 가스 사용요금(정상)',
+      gasNm3: gasUse[m], gasHeat, rate: gr[m], result: monthlyGasUseCostPre[m]
+    }) : `<div class="tt-title">${months[m]} · 가스 사용요금</div><div class="tt-note">부하 0 — 미사용</div>`);
+    if (aiOn) {
+      tipsGasUseAI.push(monthlyGasUseCostPre[m] > 0.5 ? tipAISaving({
+        title: months[m] + ' · AI통합제어 적용 가스요금',
+        original: monthlyGasUseCostPre[m], rateAI: 0.89, result: monthlyGasUseCost[m], kind: '가스요금'
+      }) : `<div class="tt-title">${months[m]} · AI 가스요금</div><div class="tt-note">사용요금 없음</div>`);
+    }
+    tipsGasTotal.push(gasUse[m] > 0.5 ? (
+      `<div class="tt-title">${months[m]} · 가스료 총계</div>` +
+      (aiOn ? `<div class="tt-line"><span class="k">사용요금(AI)</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원 (정상 ${fmt(monthlyGasUseCostPre[m])} × 0.89)</span></div>`
+            : `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원</span></div>`) +
+      `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(monthlyGasVat[m])} 원</span></div>` +
+      `<div class="tt-formula">${fmt(monthlyGasUseCost[m])} × 1.1</div>` +
+      `<div class="tt-result">= ${fmt(monthlyGasTotal[m])} 원</div>` +
+      (aiOn ? `<div class="tt-good">✓ AI통합제어 시스템 적용</div>` : '')
+    ) : `<div class="tt-title">${months[m]} · 가스료</div><div class="tt-note">부하 0 — 미사용</div>`);
+
+    tipsCombined.push(tipGrandTotal({
+      title: months[m] + ' · 월 운전비 합계',
+      elec: monthlyElec[m], gas: monthlyGasTotal[m],
+      result: monthlyCombined[m], monthLabel: months[m]
+    }));
+  }
+
+  // 테이블
+  const elecUseRows = equipmentRows.filter(r => r.vals.some(v => v > 0.5)).map(r => ({
+    label: r.label, values: r.vals, tips: r.tips,
+    sumTip: tipSum({title: r.label, values: r.vals, unit: 'kWh'})
+  }));
+  elecUseRows.push({
+    label: '전기 사용량 합계', values: totalKwh, cls: 'total',
+    tips: totalKwh.map((v,i) => v > 0.5 ?
+      `<div class="tt-title">${months[i]} · 전기 사용량 합계</div>` +
+      `<div class="tt-line"><span class="k">계산방식</span> <span class="v">위 장비 합산</span></div>` +
+      `<div class="tt-formula">본체 + 냉각탑 + 펌프</div>` +
+      `<div class="tt-result">= ${fmt(v)} kWh</div>` :
+      `<div class="tt-title">${months[i]} · 합계</div><div class="tt-note">부하 0 — 미운전</div>`),
+    sumTip: tipSum({title: '전기 사용량 합계', values: totalKwh, unit: 'kWh'})
+  });
+  document.getElementById('aElecUseTable').innerHTML = buildTable(elecUseRows);
+
+  document.getElementById('aGasUseTable').innerHTML = buildTable([
+    { label: '흡수식 냉온수기 (냉방+난방)', values: gasUse, tips: gasTips, sumTip: tipSum({title:'가스 사용량', values: gasUse, unit:'N㎥', note:'냉방월: 직화식 / 난방월: 직접가열'}) },
+    { label: '가스 사용량 합계', values: gasUse, cls: 'total', tips: gasTips, sumTip: tipSum({title:'가스 사용량 합계', values: gasUse, unit:'N㎥'}) }
+  ]);
+
+  const elecCostRows = [
+    { label: `일반전기 기본요금 (연결동력 ${connKW.toFixed(1)}kW)`, values: monthlyBase, tips: tipsBase,
+      sumTip: tipSum({title:'일반전기 기본요금', values: monthlyBase, unit:'원'}) },
+    { label: `일반전기 사용요금 (${rateGeneral}원/kWh, 정상)`, values: monthlyUseCostPre, tips: tipsUsePre,
+      sumTip: tipSum({title:'일반전기 사용요금(정상)', values: monthlyUseCostPre, unit:'원'}) }
+  ];
+  if (aiOn) {
+    elecCostRows.push({
+      label: `AI통합제어 적용 사용요금 (11% 감면)`, values: monthlyUseCost, cls: 'ai-saving', tips: tipsUseAI,
+      sumTip: tipSum({title:'AI 적용 사용요금', values: monthlyUseCost, unit:'원', note:'정상 사용요금 × 0.89'})
+    });
+  }
+  elecCostRows.push({
+    label: '전기료 총계 (부가세 포함)', values: monthlyElec, cls: 'total', tips: tipsElec,
+    sumTip: tipSum({title:'연간 전기료 총계', values: monthlyElec, unit:'원'})
+  });
+  document.getElementById('aElecCostTable').innerHTML = buildTable(elecCostRows);
+
+  const gasCostRows = [
+    { label: '사용요금 (가스 × 발열량 × 단가, 정상)', values: monthlyGasUseCostPre, tips: tipsGasUsePre,
+      sumTip: tipSum({title:'가스 사용요금(정상)', values: monthlyGasUseCostPre, unit:'원'}) }
+  ];
+  if (aiOn) {
+    gasCostRows.push({
+      label: 'AI통합제어 적용 사용요금 (11% 감면)', values: monthlyGasUseCost, cls: 'ai-saving', tips: tipsGasUseAI,
+      sumTip: tipSum({title:'AI 적용 가스 사용요금', values: monthlyGasUseCost, unit:'원'})
+    });
+  }
+  gasCostRows.push({
+    label: '가스료 총계 (부가세 포함)', values: monthlyGasTotal, cls: 'total', tips: tipsGasTotal,
+    sumTip: tipSum({title:'연간 가스료 총계', values: monthlyGasTotal, unit:'원'})
+  });
+  document.getElementById('aGasCostTable').innerHTML = buildTable(gasCostRows);
+
+  const totalRows = [
+    { label: '월 운전비 합계 (전기료 + 가스료, 부가세 포함)', values: monthlyCombined, cls: 'total', tips: tipsCombined,
+      sumTip: `<div class="tt-title">연간 총 운전비</div>` +
+        `<div class="tt-line"><span class="k">연간 전기료</span> <span class="v">${fmt(totalElec)} 원</span></div>` +
+        `<div class="tt-line"><span class="k">연간 가스료</span> <span class="v">${fmt(totalGas)} 원</span></div>` +
+        (aiOn ? `<div class="tt-line"><span class="k">AI 절감액</span> <span class="v">${fmt(aiSavingTotal)} 원</span></div>` : '') +
+        `<div class="tt-formula">${fmt(totalElec)} + ${fmt(totalGas)}</div>` +
+        `<div class="tt-result">= ${fmt(totalAll)} 원</div>` +
+        (aiOn ? `<div class="tt-good">✓ AI통합제어 적용 (사용요금 -11%)</div>` : '') }
+  ];
+  document.getElementById('aTotalCostTable').innerHTML = buildTable(totalRows);
+
+  // 모든 표에 툴팁 부착 (warm 테마)
+  attachTooltips('#aElecUseTable', true);
+  attachTooltips('#aGasUseTable', true);
+  attachTooltips('#aElecCostTable', true);
+  attachTooltips('#aGasCostTable', true);
+  attachTooltips('#aTotalCostTable', true);
+
+  absLatestCalc = {
+    tier, t, N,
+    connKW, connKWCool, connKWHeat,
+    rateGeneral, gasHeat,
+    aiOn, aiFactor,
+    inputs: {
+      usrt, cop, etaHeat: etaHeat*100, heatRatio: heatRatio*100,
+      ratedGasCool, ratedGasHeat, auxCool, auxHeat, ctKW, cwpKW, chwpKW,
+      dayHours: dayH
+    },
+    monthlyDays: od,
+    loadFactors: [...absLoadFactors],
+    equipmentRows: equipmentRows.filter(r => r.vals.some(v => v > 0.5)),
+    totalKwh, gasUse,
+    monthlyBase, monthlyUseCostPre, monthlyUseCost, monthlyPreVat, monthlyVat, monthlyElec,
+    monthlyGasUseCostPre, monthlyGasUseCost, monthlyGasVat, monthlyGasTotal,
+    monthlyCombined,
+    totalElecKwh, totalGasNm3, totalElec, totalGas, totalAll,
+    aiSavingElec, aiSavingGas, aiSavingTotal,
+    gr,
+    opPattern: absState.opPattern
+  };
+  updateCmpBadges();
+}
+
+function absResetDefaults() {
+  absState.absCount = 2; absState.opPattern = 'office'; absState.aiOn = false;
+  document.querySelector('input[name="aOpPattern"][value="office"]').checked = true;
+  document.getElementById('aFixedDaysRow').style.display = 'none';
+  document.getElementById('aAiCheckbox').checked = false;
+  document.querySelectorAll('#tab-abs .count-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('#tab-abs .count-btn[data-atarget="absCount"][data-val="2"]').classList.add('active');
+  const defaults = {
+    aFixedDays: 20, aDayHours: 10,
+    aUSRT: 500, aCOP: 0.98, aEtaHeat: 92, aHeatRatio: 100,
+    aGasCool: 296.6, aGasHeatRate: 342.8,
+    aAuxCool: 20, aAuxHeat: 21.2, aCT: 88, aCWP: 60, aCHWP: 60,
+    aGasHeat: 43.54
+  };
+  for (const [k,v] of Object.entries(defaults)) {
+    const el = document.getElementById(k);
+    if (el) el.value = v;
+  }
+  document.getElementById('aTierSelect').value = '고압A 선택Ⅱ';
+  absUpdateTierInfo();
+  absApplyTierToField();
+  absBuildGasGrid();
+  absLoadFactors = [...altLoadFactors];
+  absRenderChartBars();
+  absBuildChartValues();
+  absAttachAllListeners();
+  absCalculate();
+}
+
+function absAttachAllListeners() {
+  document.querySelectorAll('#tab-abs .panel.input-panel input[type=number]').forEach(el => {
+    if (el.classList.contains('cv-input')) return;
+    el.removeEventListener('input', absCalculate);
+    el.addEventListener('input', absCalculate);
+  });
+  document.getElementById('aAiCheckbox').removeEventListener('change', absCalculate);
+  document.getElementById('aAiCheckbox').addEventListener('change', absCalculate);
+}
+
+/* 빙축열 → 흡수식 운전조건 동기화 */
+function syncFromIce() {
+  if (!iceLatestCalc) { alert('빙축열 탭에서 먼저 계산을 완료해 주세요.'); return; }
+  // 운전 패턴
+  absState.opPattern = iceState.opPattern;
+  document.querySelector(`input[name="aOpPattern"][value="${iceState.opPattern}"]`).checked = true;
+  document.getElementById('aFixedDaysRow').style.display = iceState.opPattern === 'fixed' ? '' : 'none';
+  if (iceState.opPattern === 'fixed') {
+    document.getElementById('aFixedDays').value = num('fixedDays');
+  }
+  // 운전시간
+  document.getElementById('aDayHours').value = num('dayHours');
+  // 가스 단가
+  for (let i = 0; i < 12; i++) {
+    document.getElementById('agr' + i).value = num('gr' + i);
+  }
+  document.getElementById('aGasHeat').value = num('gasHeat');
+  // 월별 운전율
+  absLoadFactors = [...iceLoadFactors];
+  absRenderChartBars();
+  absBuildChartValues();
+  // 전기 요금단가
+  document.getElementById('aTierSelect').value = document.getElementById('tierSelect').value;
+  absUpdateTierInfo();
+  absApplyTierToField();
+  absCalculate();
+  alert('빙축열 탭의 운전 조건(패턴/시간/운전율/가스단가/전기요금)을 흡수식 탭으로 복사했습니다.');
+}
+
+/* ============================================================
+   COMPARISON
+   ============================================================ */
+function updateCmpBadges() {
+  const badge = document.getElementById('cmpBadge');
+  if (iceLatestCalc && absLatestCalc) {
+    badge.textContent = '✓';
+    badge.style.background = 'rgba(34, 197, 94, 0.85)';
+  } else {
+    badge.textContent = '대기';
+    badge.style.background = '';
+  }
+  document.getElementById('cmpBadgeIce').textContent = iceLatestCalc ? '빙축열: ' + fmtEok(iceLatestCalc.totalAll) + '원' : '빙축열: -';
+  document.getElementById('cmpBadgeAbs').textContent = absLatestCalc ? '흡수식: ' + fmtEok(absLatestCalc.totalAll) + '원' : '흡수식: -';
+  document.getElementById('cmpBadgeAI').textContent = absLatestCalc ? 'AI: ' + (absLatestCalc.aiOn ? 'ON (-11%)' : 'OFF') : 'AI: -';
+}
+
+function renderComparison() {
+  const banner = document.getElementById('cmpEmptyBanner');
+  const verdict = document.getElementById('cmpVerdict');
+  if (!iceLatestCalc || !absLatestCalc) {
+    banner.style.display = 'block';
+    verdict.style.display = 'none';
+    document.getElementById('cmpMonthlyTable').innerHTML = '';
+    document.getElementById('cmpMonthlyChart').innerHTML = '';
+    return;
+  }
+  banner.style.display = 'none';
+  verdict.style.display = 'block';
+
+  const ice = iceLatestCalc;
+  const abs = absLatestCalc;
+
+  // 좌측: 빙축열 상세
+  const iceN = ice.iceN, normN = ice.normN, heatN = ice.heatN;
+  const iceHTML = `
+    <div class="cmp-row"><span class="lbl">시스템 구성</span><span class="val">빙축열 ${iceN}대 + 상온 ${normN}대 + 보일러 ${heatN}대</span></div>
+    <div class="cmp-row"><span class="lbl">전기 요금제</span><span class="val">${ice.tier}</span></div>
+    <div class="cmp-row"><span class="lbl">연간 전기 사용량</span><span class="val">${fmt(ice.totalElecKwh)} kWh</span></div>
+    <div class="cmp-row"><span class="lbl">- 야간(심야)</span><span class="val">${fmt(ice.nightUse.reduce((a,b)=>a+b,0))} kWh</span></div>
+    <div class="cmp-row"><span class="lbl">- 주간(빙축열)</span><span class="val">${fmt(ice.iceDayUse.reduce((a,b)=>a+b,0))} kWh</span></div>
+    <div class="cmp-row"><span class="lbl">- 일반전기</span><span class="val">${fmt(ice.generalUse.reduce((a,b)=>a+b,0))} kWh</span></div>
+    <div class="cmp-row"><span class="lbl">연간 가스 사용량</span><span class="val">${fmt(ice.totalGasNm3)} N㎥</span></div>
+    <div class="cmp-row highlight"><span class="lbl">연간 전기료 (VAT 포함)</span><span class="val">${fmtEok(ice.totalElec)}원 (${fmtWon(ice.totalElec)})</span></div>
+    <div class="cmp-row highlight"><span class="lbl">연간 가스료 (VAT 포함)</span><span class="val">${fmtEok(ice.totalGas)}원 (${fmtWon(ice.totalGas)})</span></div>
+    <div class="cmp-row grand"><span class="lbl">연간 총 운전비</span><span class="val">${fmtEok(ice.totalAll)}원</span></div>
+  `;
+  document.getElementById('cmpIceContent').innerHTML = iceHTML;
+
+  // 우측: 흡수식 상세
+  // 빙축열 카드와 마지막 3행(전기료/가스료/총운전비)이 줄맞춤되도록 spacer 행 추가
+  // 빙축열: 7 본문 행 + 3 마지막 행 = 10
+  // 흡수식 본문 행: 시스템구성, 요금제, AI, 전기사용량, 가스사용량 (+AI절감액 옵션) = 5 또는 6
+  // → spacer 필요: 7 - (5 or 6) = 2 또는 1
+  const absMainRows = abs.aiOn ? 6 : 5;
+  const spacerCount = Math.max(0, 7 - absMainRows);
+  const spacers = '<div class="cmp-row spacer"><span class="lbl">&nbsp;</span><span class="val">&nbsp;</span></div>'.repeat(spacerCount);
+  const absHTML = `
+    <div class="cmp-row"><span class="lbl">시스템 구성</span><span class="val">흡수식 냉온수기 ${abs.N}대 (대당 ${abs.inputs.usrt} USRT)</span></div>
+    <div class="cmp-row"><span class="lbl">전기 요금제</span><span class="val">${abs.tier}</span></div>
+    <div class="cmp-row"><span class="lbl">AI 통합제어</span><span class="val" style="color:${abs.aiOn?'#7c3aed':'#94a3b8'};">${abs.aiOn?'✓ 적용 (사용요금 -11%)':'미적용'}</span></div>
+    <div class="cmp-row"><span class="lbl">연간 전기 사용량</span><span class="val">${fmt(abs.totalElecKwh)} kWh</span></div>
+    <div class="cmp-row"><span class="lbl">연간 가스 사용량</span><span class="val">${fmt(abs.totalGasNm3)} N㎥</span></div>
+    ${abs.aiOn ? `<div class="cmp-row"><span class="lbl">AI 절감액 (전기+가스)</span><span class="val" style="color:#7c3aed;">${fmtWon(abs.aiSavingTotal)}</span></div>` : ''}
+    ${spacers}
+    <div class="cmp-row highlight"><span class="lbl">연간 전기료 (VAT 포함)</span><span class="val">${fmtEok(abs.totalElec)}원 (${fmtWon(abs.totalElec)})</span></div>
+    <div class="cmp-row highlight"><span class="lbl">연간 가스료 (VAT 포함)</span><span class="val">${fmtEok(abs.totalGas)}원 (${fmtWon(abs.totalGas)})</span></div>
+    <div class="cmp-row grand"><span class="lbl">연간 총 운전비</span><span class="val">${fmtEok(abs.totalAll)}원</span></div>
+  `;
+  document.getElementById('cmpAbsContent').innerHTML = absHTML;
+
+  // Verdict 영역
+  const diff = ice.totalAll - abs.totalAll;  // 양수면 흡수식이 저렴
+  const pct = ice.totalAll > 0 ? diff / ice.totalAll * 100 : 0;
+  const elecDiff = abs.totalElec - ice.totalElec;
+  const gasDiff = abs.totalGas - ice.totalGas;
+
+  // === 강도 산정: 절대 차이율(%)을 5단계로 매핑 ===
+  // ~2%: faint, 2~5%: light, 5~10%: medium, 10~20%: strong, 20%+: deep
+  const absPct = Math.abs(pct);
+  let strengthClass, strengthLabel;
+  if (absPct < 2)        { strengthClass = 'faint';   strengthLabel = '근소 차이'; }
+  else if (absPct < 5)   { strengthClass = 'light';   strengthLabel = '소폭 차이'; }
+  else if (absPct < 10)  { strengthClass = 'medium';  strengthLabel = '뚜렷한 차이'; }
+  else if (absPct < 20)  { strengthClass = 'strong';  strengthLabel = '큰 차이'; }
+  else                   { strengthClass = 'deep';    strengthLabel = '매우 큰 차이'; }
+
+  // 기존 상태 클래스 모두 제거
+  ['negative','abs-faint','abs-light','abs-medium','abs-strong','abs-deep',
+   'ice-faint','ice-light','ice-medium','ice-strong','ice-deep'].forEach(cls => verdict.classList.remove(cls));
+  // 새 클래스 적용 (흡수식 유리: 주황, 빙축열 유리: 파랑)
+  verdict.classList.add((diff >= 0 ? 'abs-' : 'ice-') + strengthClass);
+
+  if (diff >= 0) {
+    document.getElementById('cmpVerdictTitle').innerHTML =
+      `흡수식 냉온수기 시스템이 연간 ${fmtEok(diff)}원 절감됩니다 (-${pct.toFixed(1)}%)` +
+      `<span class="vd-strength-badge">${strengthLabel}</span>`;
+    document.getElementById('cmpVerdictDesc').innerHTML =
+      `빙축열 시스템 ${fmtEok(ice.totalAll)}원 vs 흡수식 시스템 ${fmtEok(abs.totalAll)}원 — 흡수식이 <b>${fmtWon(diff)}</b> 더 경제적입니다.` +
+      (abs.aiOn ? ` <b>(AI통합제어 ${fmtWon(abs.aiSavingTotal)} 절감 포함)</b>` : ` AI통합제어 미적용 상태이며, 적용 시 추가 절감 가능합니다.`);
+  } else {
+    document.getElementById('cmpVerdictTitle').innerHTML =
+      `빙축열 시스템이 연간 ${fmtEok(-diff)}원 더 경제적입니다 (${pct.toFixed(1)}%)` +
+      `<span class="vd-strength-badge">${strengthLabel}</span>`;
+    document.getElementById('cmpVerdictDesc').innerHTML =
+      `현재 입력 조건에서는 빙축열이 ${fmtWon(-diff)} 더 저렴합니다. AI통합제어 적용 또는 운전 조건을 조정해 보세요.`;
+  }
+  document.getElementById('cmpDiffVal').textContent = (diff >= 0 ? '-' : '+') + fmtWon(Math.abs(diff));
+  document.getElementById('cmpDiffPct').textContent = (diff >= 0 ? '절감 ' : '추가 ') + Math.abs(pct).toFixed(1) + '%';
+  document.getElementById('cmpElecDiff').textContent = (elecDiff < 0 ? '-' : '+') + fmtWon(Math.abs(elecDiff));
+  document.getElementById('cmpElecDesc').textContent = elecDiff < 0 ? '흡수식이 더 적음' : '흡수식이 더 많음';
+  document.getElementById('cmpGasDiff').textContent = (gasDiff < 0 ? '-' : '+') + fmtWon(Math.abs(gasDiff));
+  document.getElementById('cmpGasDesc').textContent = gasDiff < 0 ? '흡수식이 더 적음' : '흡수식이 더 많음';
+
+  // 월별 비교 테이블
+  const cmpRows = [
+    { label: '빙축열 월 운전비', values: ice.monthlyCombined },
+    { label: '흡수식 월 운전비', values: abs.monthlyCombined },
+    { label: '월 차액 (빙축 - 흡수)', values: ice.monthlyCombined.map((v,i) => v - abs.monthlyCombined[i]), cls: 'total' }
+  ];
+  document.getElementById('cmpMonthlyTable').innerHTML = buildTable(cmpRows);
+
+  // 월별 그래프
+  renderCmpMonthlyChart(ice.monthlyCombined, abs.monthlyCombined);
+}
+
+function renderCmpMonthlyChart(iceVals, absVals) {
+  const svg = document.getElementById('cmpMonthlyChart');
+  const W = 1200, H = 360;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const padL = 56, padR = 24, padT = 46, padB = 76;
+  const cw = W - padL - padR;
+  const ch = H - padT - padB;
+
+  // === 레이아웃 ===
+  const groupW = cw / 12;
+  const groupGap = groupW * 0.32;          // 슬롯 간 여백 (32%)
+  const usableW = groupW - groupGap;
+  const barGap = 6;
+  const barW = (usableW - barGap) / 2;
+
+  const allVals = [...iceVals, ...absVals];
+  const maxV = Math.max(...allVals, 1) * 1.18;
+
+  // === 'nice' 눈금 산정 (5 칸 기준) ===
+  const niceStep = (rawMax) => {
+    const exp = Math.pow(10, Math.floor(Math.log10(rawMax)));
+    const norm = rawMax / exp;
+    let step;
+    if (norm <= 1)      step = 0.2 * exp;
+    else if (norm <= 2) step = 0.5 * exp;
+    else if (norm <= 5) step = 1   * exp;
+    else                step = 2   * exp;
+    return step;
+  };
+  const step = niceStep(maxV / 5);
+  const ticks = Math.ceil(maxV / step);
+  const yMax = step * ticks;
+
+  let html = '';
+
+  // === 정의: 그라데이션 + 그림자 필터 ===
+  html += `<defs>` +
+    `<linearGradient id="iceBar" x1="0%" y1="0%" x2="0%" y2="100%">` +
+      `<stop offset="0%" stop-color="#60a5fa"/>` +
+      `<stop offset="55%" stop-color="#3b82f6"/>` +
+      `<stop offset="100%" stop-color="#1e40af"/>` +
+    `</linearGradient>` +
+    `<linearGradient id="absBar" x1="0%" y1="0%" x2="0%" y2="100%">` +
+      `<stop offset="0%" stop-color="#fb923c"/>` +
+      `<stop offset="55%" stop-color="#f97316"/>` +
+      `<stop offset="100%" stop-color="#c2410c"/>` +
+    `</linearGradient>` +
+    `<filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">` +
+      `<feGaussianBlur stdDeviation="2" result="b"/>` +
+      `<feOffset dx="0" dy="1" result="o"/>` +
+      `<feComponentTransfer><feFuncA type="linear" slope="0.18"/></feComponentTransfer>` +
+      `<feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>` +
+    `</filter>` +
+  `</defs>`;
+
+  // === 차트 영역 배경 (아주 옅은 카드) ===
+  html += `<rect x="${padL}" y="${padT}" width="${cw}" height="${ch}" fill="#fafbfc" rx="6"/>`;
+
+  // === 가로 그리드 (점선, 매우 옅음) ===
+  for (let i = 0; i <= ticks; i++) {
+    const y = padT + ch - (ch * i / ticks);
+    const v = step * i;
+    if (i > 0) {
+      html += `<line stroke="#e2e8f0" stroke-dasharray="2,4" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke-width="0.6"/>`;
+    }
+    html += `<text fill="#94a3b8" font-size="10.5" x="${padL - 10}" y="${y + 3.5}" text-anchor="end" font-weight="500" font-family="Pretendard, sans-serif">${(v/1e6).toFixed(0)}</text>`;
+  }
+  // Y축 단위 표기 (좌상단)
+  html += `<text fill="#64748b" font-size="10" x="${padL - 10}" y="${padT - 22}" text-anchor="end" font-weight="600">백만원</text>`;
+
+  // === 최하단 기준선 ===
+  html += `<line stroke="#cbd5e1" x1="${padL}" y1="${padT + ch}" x2="${W - padR}" y2="${padT + ch}" stroke-width="1"/>`;
+
+  // === 차트 제목 ===
+  html += `<text fill="#1e293b" font-size="11" font-weight="700" x="${padL}" y="${padT - 22}" letter-spacing="0.2">월별 운전비 비교</text>`;
+
+  // === 막대 + 라벨 ===
+  for (let m = 0; m < 12; m++) {
+    const slotLeft = padL + groupW * m + groupGap / 2;
+    const ix = slotLeft;
+    const ax = ix + barW + barGap;
+
+    const iv = iceVals[m] / yMax * ch;
+    const iy = padT + ch - iv;
+    const av = absVals[m] / yMax * ch;
+    const ay = padT + ch - av;
+
+    // 막대 (둥근 모서리 위쪽만, 살짝 그림자)
+    if (iv > 0.5) {
+      html += `<rect x="${ix}" y="${iy}" width="${barW}" height="${iv}" fill="url(#iceBar)" rx="3.5" filter="url(#softShadow)"/>`;
+    }
+    if (av > 0.5) {
+      html += `<rect x="${ax}" y="${ay}" width="${barW}" height="${av}" fill="url(#absBar)" rx="3.5" filter="url(#softShadow)"/>`;
+    }
+
+    // 막대 위 값 (가독성 강화 — 하얀 outline)
+    const lblFont = 9.5;
+    if (iceVals[m] > yMax * 0.03) {
+      html += `<text font-size="${lblFont}" font-weight="700" x="${ix + barW/2}" y="${iy - 5}" text-anchor="middle" fill="white" stroke="white" stroke-width="3" paint-order="stroke" font-family="Pretendard, sans-serif">${(iceVals[m]/1e6).toFixed(1)}</text>`;
+      html += `<text font-size="${lblFont}" font-weight="700" x="${ix + barW/2}" y="${iy - 5}" text-anchor="middle" fill="#1e40af" font-family="Pretendard, sans-serif">${(iceVals[m]/1e6).toFixed(1)}</text>`;
+    }
+    if (absVals[m] > yMax * 0.03) {
+      html += `<text font-size="${lblFont}" font-weight="700" x="${ax + barW/2}" y="${ay - 5}" text-anchor="middle" fill="white" stroke="white" stroke-width="3" paint-order="stroke" font-family="Pretendard, sans-serif">${(absVals[m]/1e6).toFixed(1)}</text>`;
+      html += `<text font-size="${lblFont}" font-weight="700" x="${ax + barW/2}" y="${ay - 5}" text-anchor="middle" fill="#9a3412" font-family="Pretendard, sans-serif">${(absVals[m]/1e6).toFixed(1)}</text>`;
+    }
+
+    // 월 라벨 (X축)
+    html += `<text fill="#475569" font-size="11.5" x="${padL + groupW * m + groupW/2}" y="${padT + ch + 22}" text-anchor="middle" font-weight="600" font-family="Pretendard, sans-serif">${months[m]}</text>`;
+
+    // 월별 차액 표시 (월 라벨 바로 아래)
+    const diff = iceVals[m] - absVals[m];
+    if (Math.abs(diff) > yMax * 0.005) {
+      const cx = padL + groupW * m + groupW/2;
+      const cy = padT + ch + 40;
+      const color = diff > 0 ? '#047857' : '#dc2626';
+      const sign = diff > 0 ? '▼' : '▲';
+      const txt = `${sign} ${(Math.abs(diff)/1e6).toFixed(1)}`;
+      html += `<text font-size="10" font-weight="700" x="${cx}" y="${cy}" text-anchor="middle" fill="${color}" font-family="Pretendard, sans-serif">${txt}</text>`;
+    }
+  }
+
+  // === 범례 (상단 우측) ===
+  const lgY = padT - 28;
+  let lgX = W - padR - 380;
+  // 빙축열
+  html += `<rect x="${lgX}" y="${lgY}" width="14" height="14" fill="url(#iceBar)" rx="3"/>`;
+  html += `<text fill="#1e293b" font-size="11.5" x="${lgX + 20}" y="${lgY + 11}" font-weight="600" font-family="Pretendard, sans-serif">빙축열 시스템</text>`;
+  lgX += 110;
+  // 흡수식
+  html += `<rect x="${lgX}" y="${lgY}" width="14" height="14" fill="url(#absBar)" rx="3"/>`;
+  html += `<text fill="#1e293b" font-size="11.5" x="${lgX + 20}" y="${lgY + 11}" font-weight="600" font-family="Pretendard, sans-serif">흡수식 냉온수기</text>`;
+  lgX += 124;
+  // 절감 / 추가 안내
+  html += `<text fill="#047857" font-size="10.5" font-weight="700" x="${lgX}" y="${lgY + 11}" font-family="Pretendard, sans-serif">▼ 흡수식 절감</text>`;
+  lgX += 90;
+  html += `<text fill="#dc2626" font-size="10.5" font-weight="700" x="${lgX}" y="${lgY + 11}" font-family="Pretendard, sans-serif">▲ 흡수식 초과</text>`;
+
+  svg.innerHTML = html;
+}
+
+/* ============================================================
+   EXCEL / PDF Downloads
+   ============================================================ */
 function tableToAOA(tableId) {
   const tbl = document.querySelector('#' + tableId + ' table');
   if (!tbl) return [];
@@ -1274,11 +3127,8 @@ function tableToAOA(tableId) {
       const n = parseFloat(cleaned);
       if (!isNaN(n) && /^-?[0-9.,\s]+$/.test(text)) {
         row.push(n);
-      } else if (text === '-') {
-        row.push(0);
-      } else {
-        row.push(text);
-      }
+      } else if (text === '-') row.push(0);
+      else row.push(text);
     });
     aoa.push(row);
   });
@@ -1288,93 +3138,23 @@ function tableToAOA(tableId) {
 function makeSheetFromTable(tableId) {
   const aoa = tableToAOA(tableId);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // Add SUM formulas in 연간 합계 column (col N, index 13)
   for (let r = 1; r < aoa.length; r++) {
     const cellRef = XLSX.utils.encode_cell({ c: 13, r: r });
     ws[cellRef] = { t: 'n', f: `SUM(B${r+1}:M${r+1})`, z: '#,##0' };
   }
-  // Number format for B~M columns
   for (let r = 1; r < aoa.length; r++) {
     for (let c = 1; c <= 12; c++) {
       const ref = XLSX.utils.encode_cell({ c, r });
-      if (ws[ref] && typeof ws[ref].v === 'number') {
-        ws[ref].z = '#,##0';
-      }
+      if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
     }
   }
   ws['!cols'] = [{wch: 32}, ...Array(12).fill({wch: 11}), {wch: 15}];
   return ws;
 }
 
-function makeInputSheet() {
-  if (!latestCalc) calculate();
-  const c = latestCalc;
-  const patName = state.opPattern === 'office' ? '오피스 (평일만)' : state.opPattern === 'commercial' ? '상업시설 (전일)' : '일괄기입';
-  const data = [
-    ['빙축열 시스템 운전비 자동계산 — 입력 데이터'],
-    ['생성일', new Date().toLocaleString('ko-KR')],
-    [],
-    ['【 1. 운전 조건 】'],
-    ['항목', '값', '단위'],
-    ['운전 패턴', patName, ''],
-    ['일 운전시간 (주간)', c.inputs.dayHours, 'h'],
-    ['야간 축냉 운전시간', c.inputs.nightHours, 'h'],
-    ['축열조 용량비율 (α)', c.inputs.alpha * 100, '%'],
-    ['연간 총 운전일수', c.monthlyDays.reduce((a,b)=>a+b,0), '일'],
-    [],
-    ['【 2. 냉방 장비 (대당 동력 × 대수) 】'],
-    ['장비명', '대당 동력', '대수', '총 동력', '단위'],
-    ['냉동기(빙축열용, 주간)', c.inputs.iceTurboDay, c.iceN, c.inputs.iceTurboDay * c.iceN, 'kW'],
-    ['냉동기(빙축열용, 야간)', c.inputs.iceTurboNight, c.iceN, c.inputs.iceTurboNight * c.iceN, 'kW'],
-    ['냉각탑(빙축열용)', c.inputs.iceCT, c.iceN, c.inputs.iceCT * c.iceN, 'kW'],
-    ['펌프(브라인 순환)', c.inputs.brinePump, c.iceN, c.inputs.brinePump * c.iceN, 'kW'],
-    ['펌프(냉각수, 빙축열용)', c.inputs.iceCWP, c.iceN, c.inputs.iceCWP * c.iceN, 'kW'],
-    ['펌프(냉수, 빙축열용)', c.inputs.iceCHWP, c.iceN, c.inputs.iceCHWP * c.iceN, 'kW'],
-    ['냉동기(상온용)', c.inputs.normalTurbo, c.normN, c.inputs.normalTurbo * c.normN, 'kW'],
-    ['냉각탑(상온용)', c.inputs.normalCT, c.normN, c.inputs.normalCT * c.normN, 'kW'],
-    ['펌프(냉각수, 상온용)', c.inputs.normalCWP, c.normN, c.inputs.normalCWP * c.normN, 'kW'],
-    ['펌프(냉수, 상온용)', c.inputs.normalCHWP, c.normN, c.inputs.normalCHWP * c.normN, 'kW'],
-    [],
-    ['【 3. 난방 장비 (대당 × 대수) 】'],
-    ['보일러(난방용, 전기)', c.inputs.boilerElec, c.heatN, c.inputs.boilerElec * c.heatN, 'kW'],
-    ['보일러(난방용, 가스)', c.inputs.boilerGas, c.heatN, c.inputs.boilerGas * c.heatN, 'N㎥/h'],
-    ['펌프(난방 순환)', c.inputs.heatPump, c.heatN, c.inputs.heatPump * c.heatN, 'kW'],
-    [],
-    ['【 4. 전기 요금 】'],
-    ['일반전기 종류', c.tier, ''],
-    ['일반전기 기본요금', c.t.base, '원/kW'],
-    ['일반전기 사용요금(여름철 중간부하)', c.t.summer, '원/kWh'],
-    ['일반전기 사용요금(봄·가을철 중간부하)', c.t.spring, '원/kWh'],
-    ['일반전기 사용요금(겨울철 중간부하)', c.t.winter, '원/kWh'],
-    ['심야전기 사용요금(야간)', c.rateNight, '원/kWh'],
-    ['심야전기 사용요금(주간)', c.rateIceDay, '원/kWh'],
-    ['일반전기 사용요금 (적용값)', c.rateGeneral, '원/kWh'],
-    ['심야전기 기본요금', c.rateBaseIce, '원/kW'],
-    ['심야전기 최저요금', c.rateMinIce, '원/kW'],
-    [],
-    ['【 5. 가스 요금 】'],
-    ['가스 발열량', c.gasHeat, 'MJ/N㎥'],
-    ['월별 가스 단가 (원/MJ)', ''],
-    ['1월', c.gr[0]], ['2월', c.gr[1]], ['3월', c.gr[2]], ['4월', c.gr[3]],
-    ['5월', c.gr[4]], ['6월', c.gr[5]], ['7월', c.gr[6]], ['8월', c.gr[7]],
-    ['9월', c.gr[8]], ['10월', c.gr[9]], ['11월', c.gr[10]], ['12월', c.gr[11]],
-    [],
-    ['【 6. 월별 운전율 (%) 】'],
-    [...months, '평균'],
-    [...c.loadFactors, Math.round(c.loadFactors.reduce((a,b)=>a+b,0)/12*10)/10],
-    [],
-    ['【 7. 월별 운전일수 】'],
-    [...months, '연합계'],
-    [...c.monthlyDays, c.monthlyDays.reduce((a,b)=>a+b,0)]
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [{wch: 32}, {wch: 14}, {wch: 10}, {wch: 14}, {wch: 8}];
-  return ws;
-}
-
-function makeSummarySheet() {
-  if (!latestCalc) calculate();
-  const c = latestCalc;
+function iceMakeSummarySheet() {
+  if (!iceLatestCalc) iceCalculate();
+  const c = iceLatestCalc;
   const data = [
     ['빙축열 시스템 운전비 — 요약 결과'],
     ['생성일', new Date().toLocaleString('ko-KR')],
@@ -1389,123 +3169,141 @@ function makeSummarySheet() {
     ['연간 전기료', c.totalElec, '원'],
     ['연간 가스료', c.totalGas, '원'],
     ['연간 총 운전비', c.totalAll, '원'],
-    ['월 평균 운전비', c.totalAll/12, '원'],
-    [],
-    ['【 비율 분석 】'],
-    ['전기료 비중', c.totalElec/c.totalAll, ''],
-    ['가스료 비중', c.totalGas/c.totalAll, '']
+    ['월 평균 운전비', c.totalAll/12, '원']
   ];
   const ws = XLSX.utils.aoa_to_sheet(data);
-  // Formulas (set after aoa conversion)
-  ws['B13'] = { t: 'n', f: 'B11+B12', z: '#,##0' };
-  ws['B14'] = { t: 'n', f: 'B13/12', z: '#,##0' };
-  ws['B17'] = { t: 'n', f: 'B11/B13', z: '0.00%' };
-  ws['B18'] = { t: 'n', f: 'B12/B13', z: '0.00%' };
-  // Number formats
-  ['B5','B6','B7','B8','B9','B11','B12'].forEach(ref => {
+  ['B5','B6','B7','B8','B9','B11','B12','B13','B14'].forEach(ref => {
     if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
   });
   ws['!cols'] = [{wch: 28}, {wch: 18}, {wch: 8}];
   return ws;
 }
 
-function downloadExcel() {
+function absMakeSummarySheet() {
+  if (!absLatestCalc) absCalculate();
+  const c = absLatestCalc;
+  const data = [
+    ['흡수식 냉온수기 시스템 운전비 — 요약 결과'],
+    ['생성일', new Date().toLocaleString('ko-KR')],
+    [],
+    ['AI통합제어 시스템 적용', c.aiOn ? '예 (사용요금 11% 감면)' : '아니오'],
+    [],
+    ['항목', '값', '단위'],
+    ['연간 전기 사용량', c.totalElecKwh, 'kWh'],
+    ['연간 가스 사용량', c.totalGasNm3, 'N㎥'],
+    ['연간 전기료', c.totalElec, '원'],
+    ['연간 가스료', c.totalGas, '원'],
+    ['연간 총 운전비', c.totalAll, '원'],
+    ['월 평균 운전비', c.totalAll/12, '원']
+  ];
+  if (c.aiOn) {
+    data.push([], ['AI 절감액 (전기)', c.aiSavingElec, '원']);
+    data.push(['AI 절감액 (가스)', c.aiSavingGas, '원']);
+    data.push(['AI 절감액 합계', c.aiSavingTotal, '원']);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  for (let r = 5; r < data.length; r++) {
+    const ref = XLSX.utils.encode_cell({ c: 1, r });
+    if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
+  }
+  ws['!cols'] = [{wch: 28}, {wch: 18}, {wch: 8}];
+  return ws;
+}
+
+function downloadExcelIce() {
   try {
-    if (!latestCalc) calculate();
+    if (!iceLatestCalc) iceCalculate();
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, makeSummarySheet(), '요약');
-    XLSX.utils.book_append_sheet(wb, makeInputSheet(), '입력 데이터');
-    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('elecUseTable'), 'A. 월별 전기사용량');
-    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('gasUseTable'),  'B. 월별 가스사용량');
-    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('elecCostTable'),'C. 월별 전기료');
-    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('gasCostTable'), 'D. 월별 가스료');
+    XLSX.utils.book_append_sheet(wb, iceMakeSummarySheet(), '요약');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('elecUseTable'), 'A. 전기사용량');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('gasUseTable'),  'B. 가스사용량');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('elecCostTable'),'C. 전기료');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('gasCostTable'), 'D. 가스료');
     XLSX.utils.book_append_sheet(wb, makeSheetFromTable('totalCostTable'),'E. 운전비 종합');
     const ts = new Date();
     const fname = `빙축열_운전비_${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}.xlsx`;
     XLSX.writeFile(wb, fname);
-  } catch (e) {
-    alert('엑셀 다운로드 중 오류: ' + e.message);
-  }
+  } catch (e) { alert('엑셀 다운로드 중 오류: ' + e.message); }
 }
 
-/* ===== PDF Download (A4 landscape, A~E only, single page) ===== */
-async function downloadPDF() {
-  // Library availability check
-  if (typeof html2canvas === 'undefined') {
-    alert('html2canvas 라이브러리 로드 실패 — 인터넷 연결을 확인해 주세요.');
-    return;
-  }
-  if (!window.jspdf || !window.jspdf.jsPDF) {
-    alert('jsPDF 라이브러리 로드 실패 — 인터넷 연결을 확인해 주세요.');
-    return;
-  }
-  if (!latestCalc) calculate();
+function downloadExcelAbs() {
+  try {
+    if (!absLatestCalc) absCalculate();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, absMakeSummarySheet(), '요약');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('aElecUseTable'), 'A. 전기사용량');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('aGasUseTable'),  'B. 가스사용량');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('aElecCostTable'),'C. 전기료');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('aGasCostTable'), 'D. 가스료');
+    XLSX.utils.book_append_sheet(wb, makeSheetFromTable('aTotalCostTable'),'E. 운전비 종합');
+    const ts = new Date();
+    const aiTag = absLatestCalc.aiOn ? '_AI적용' : '';
+    const fname = `흡수식_운전비${aiTag}_${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}.xlsx`;
+    XLSX.writeFile(wb, fname);
+  } catch (e) { alert('엑셀 다운로드 중 오류: ' + e.message); }
+}
 
+async function downloadPDFGeneric(srcId, isWarm, sysName, latestCalc) {
+  if (typeof html2canvas === 'undefined' || !window.jspdf || !window.jspdf.jsPDF) {
+    alert('PDF 라이브러리 로드 실패 — 인터넷 연결을 확인해 주세요.');
+    return;
+  }
   const c = latestCalc;
   const ts = new Date();
   const yyyy = ts.getFullYear();
   const mm = String(ts.getMonth()+1).padStart(2,'0');
   const dd = String(ts.getDate()).padStart(2,'0');
-  const fname = `빙축열_운전비_${yyyy}${mm}${dd}.pdf`;
+  const aiTag = (c.aiOn) ? '_AI적용' : '';
+  const fname = `${sysName}_운전비${aiTag}_${yyyy}${mm}${dd}.pdf`;
   const dateStr = `${yyyy}-${mm}-${dd}`;
 
-  // Build capture wrap
-  const src = document.getElementById('pdfContent');
+  const src = document.getElementById(srcId);
   const wrap = document.createElement('div');
-  wrap.className = 'pdf-capture';
-  // Position off-screen but in normal flow rendering
+  wrap.className = 'pdf-capture' + (isWarm ? ' warm' : '');
   wrap.style.position = 'absolute';
   wrap.style.left = '-20000px';
   wrap.style.top = '0';
   wrap.style.zIndex = '-1';
 
-  const patName = state.opPattern === 'office' ? '오피스(평일)' : state.opPattern === 'commercial' ? '상업시설(전일)' : '일괄기입';
+  let metaLine = '';
+  if (isWarm) {
+    const patName = c.opPattern === 'office' ? '오피스(평일)' : c.opPattern === 'commercial' ? '상업시설(전일)' : '일괄기입';
+    metaLine = `${dateStr} · ${patName} · ${c.tier} · 흡수식 ${c.N}대 (${c.inputs.usrt} USRT/대) · ` +
+      `${c.aiOn ? 'AI통합제어 적용(-11%) · ' : ''}` +
+      `연간 총 운전비 <b>${(c.totalAll/1e8).toFixed(2)}억원</b> ` +
+      `(전기 ${(c.totalElec/1e8).toFixed(2)}억 + 가스 ${(c.totalGas/1e8).toFixed(2)}억)`;
+  } else {
+    const patName = c.opPattern === 'office' ? '오피스(평일)' : c.opPattern === 'commercial' ? '상업시설(전일)' : '일괄기입';
+    metaLine = `${dateStr} · ${patName} · ${c.tier} · 빙축열 ${c.iceN}대 / 상온 ${c.normN}대 / 난방 ${c.heatN}대 · ` +
+      `연간 총 운전비 <b>${(c.totalAll/1e8).toFixed(2)}억원</b> ` +
+      `(전기 ${(c.totalElec/1e8).toFixed(2)}억 + 가스 ${(c.totalGas/1e8).toFixed(2)}억)`;
+  }
+
   wrap.innerHTML =
-    `<div class="pdf-title">` +
-      `빙축열 시스템 운전비 자동계산` +
-      `<div class="meta">` +
-        `${dateStr} · ${patName} · ${c.tier} · 빙축열 ${c.iceN}대 / 상온 ${c.normN}대 / 난방 ${c.heatN}대 · ` +
-        `연간 총 운전비 <b>${(c.totalAll/1e8).toFixed(2)}억원</b> ` +
-        `(전기 ${(c.totalElec/1e8).toFixed(2)}억 + 가스 ${(c.totalGas/1e8).toFixed(2)}억)` +
-      `</div>` +
+    `<div class="pdf-title${isWarm?' warm':''}">` +
+      `${sysName} 시스템 운전비 자동계산` +
+      `<div class="meta">${metaLine}</div>` +
     `</div>` +
     src.innerHTML;
 
   document.body.appendChild(wrap);
-
   try {
-    // Allow layout to settle (two RAFs)
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-
     const canvas = await html2canvas(wrap, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-      logging: false,
-      windowWidth: wrap.scrollWidth,
-      windowHeight: wrap.scrollHeight
+      scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
+      windowWidth: wrap.scrollWidth, windowHeight: wrap.scrollHeight
     });
-
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
     const pageW = 297, pageH = 210;
     const margin = 4;
-    const availW = pageW - margin * 2;   // 289
-    const availH = pageH - margin * 2;   // 202
-
-    // Scale image to fit available area while preserving aspect ratio.
-    // Force single page: pick whichever scale (width-fit / height-fit) keeps both dims ≤ available.
-    const cwMm = (canvas.width / canvas.height) * availH;     // width if scaled to availH
-    const chMm = (canvas.height / canvas.width) * availW;     // height if scaled to availW
+    const availW = pageW - margin * 2;
+    const availH = pageH - margin * 2;
+    const cwMm = (canvas.width / canvas.height) * availH;
+    const chMm = (canvas.height / canvas.width) * availW;
     let imgW, imgH;
-    if (chMm <= availH) {
-      // Width-fit works
-      imgW = availW; imgH = chMm;
-    } else {
-      // Need to height-fit
-      imgH = availH; imgW = cwMm;
-    }
-
+    if (chMm <= availH) { imgW = availW; imgH = chMm; }
+    else { imgH = availH; imgW = cwMm; }
     const x = (pageW - imgW) / 2;
     const y = (pageH - imgH) / 2;
     const imgData = canvas.toDataURL('image/jpeg', 0.92);
@@ -1519,17 +3317,41 @@ async function downloadPDF() {
   }
 }
 
-// Initialization
-buildGasGrid();
-buildTierSelect();
-updateTierInfo();
-attachCountButtons();
-attachRadios();
-renderChartBars();
-buildChartValues();
-attachChartEvents();
-attachAllListeners();
-calculate();
+async function downloadPDFIce() {
+  if (!iceLatestCalc) iceCalculate();
+  await downloadPDFGeneric('pdfContent', false, '빙축열', iceLatestCalc);
+}
+async function downloadPDFAbs() {
+  if (!absLatestCalc) absCalculate();
+  await downloadPDFGeneric('aPdfContent', true, '흡수식', absLatestCalc);
+}
+
+/* INITIALIZATION */
+iceBuildGasGrid();
+iceBuildTierSelect();
+iceUpdateTierInfo();
+iceAttachCountButtons();
+iceAttachRadios();
+iceRenderChartBars();
+iceBuildChartValues();
+iceAttachChartEvents();
+iceAttachAllListeners();
+iceCalculate();
+
+absBuildGasGrid();
+absBuildTierSelect();
+absUpdateTierInfo();
+absAttachCountButtons();
+absAttachRadios();
+absRenderChartBars();
+absBuildChartValues();
+absAttachChartEvents();
+absAttachAllListeners();
+absCalculate();
+
+updateCmpBadges();
 </script>
+
 </body>
 </html>
+
