@@ -2767,7 +2767,8 @@ function absCalculate() {
     tier, t, N,
     connKW, connKWCool, connKWHeat,
     rateGeneral, gasHeat,
-    aiOn, aiFactor,
+    aiOn,
+    aiCoolingOnly: true,
     inputs: {
       usrt, cop, etaHeat: etaHeat*100, heatRatio: heatRatio*100,
       ratedGasCool, ratedGasHeat, auxCool, auxHeat, ctKW, cwpKW, chwpKW,
@@ -2870,7 +2871,12 @@ function updateCmpBadges() {
   }
   document.getElementById('cmpBadgeIce').textContent = iceLatestCalc ? '빙축열: ' + fmtEok(iceLatestCalc.totalAll) + '원' : '빙축열: -';
   document.getElementById('cmpBadgeAbs').textContent = absLatestCalc ? '흡수식: ' + fmtEok(absLatestCalc.totalAll) + '원' : '흡수식: -';
-  document.getElementById('cmpBadgeAI').textContent = absLatestCalc ? 'AI: ' + (absLatestCalc.aiOn ? 'ON (-11%)' : 'OFF') : 'AI: -';
+  document.getElementById('cmpBadgeAI').textContent = absLatestCalc ? 'AI: ' + (absLatestCalc.aiOn ? 'ON (냉방-11%)' : 'OFF') : 'AI: -';
+
+  // 비교 탭이 현재 활성화돼있으면 자동 재렌더링 (양쪽 데이터 준비 완료 시)
+  if (iceLatestCalc && absLatestCalc && document.getElementById('tab-cmp').classList.contains('active')) {
+    renderComparison();
+  }
 }
 
 function renderComparison() {
