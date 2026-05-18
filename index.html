@@ -1159,9 +1159,9 @@ table.result tr.ai-saving td[data-tip]:hover { background: #ede9fe !important; }
         <input type="checkbox" id="aAiCheckbox">
         <div style="flex:1;">
           <div class="ai-title">AI통합제어 시스템 적용</div>
-          <div class="ai-desc">시험인증서 기준 · 전기/가스 사용요금 자동 감면 (기본요금 제외)</div>
+          <div class="ai-desc">시험인증서 기준 · <b>냉방기간(5~10월)</b>의 전기/가스 사용요금만 자동 감면 (기본요금 제외)</div>
         </div>
-        <span class="saving-badge">-11%</span>
+        <span class="saving-badge">냉방기간 -11%</span>
       </label>
     </div>
   </div>
@@ -1495,13 +1495,15 @@ function tipUseCost({title, kwh, rate, result, note, rateLabel}) {
     (note ? `<div class="tt-note">${note}</div>` : '');
 }
 
-function tipAISaving({title, original, rateAI, result, kind}) {
+function tipAISaving({title, original, rateAI, result, kind, isCool}) {
   return `<div class="tt-title">${title}</div>` +
     `<div class="tt-line"><span class="k">기본 ${kind}</span> <span class="v">${fmt(original)} 원</span></div>` +
-    `<div class="tt-line"><span class="k">AI 감면율</span> <span class="v">11% (감면계수 0.89)</span></div>` +
-    `<div class="tt-formula">${fmt(original)} × 0.89</div>` +
+    `<div class="tt-line"><span class="k">AI 감면율</span> <span class="v">${isCool===false?'0% (난방기간 미적용)':'11% (감면계수 0.89)'}</span></div>` +
+    `<div class="tt-formula">${fmt(original)} × ${isCool===false?'1.00':'0.89'}</div>` +
     `<div class="tt-result">= ${fmt(result)} 원</div>` +
-    `<div class="tt-good">✓ AI통합제어 시스템 적용 시 자동 감면</div>`;
+    (isCool===false
+      ? `<div class="tt-note">AI 감면은 냉방기간(5~10월)에만 적용</div>`
+      : `<div class="tt-good">✓ AI통합제어 적용 (냉방기간 11% 감면)</div>`);
 }
 
 function tipGasCost({title, gasNm3, gasHeat, rate, result, note}) {
@@ -1514,21 +1516,22 @@ function tipGasCost({title, gasNm3, gasHeat, rate, result, note}) {
     (note ? `<div class="tt-note">${note}</div>` : '');
 }
 
-function tipElecTotal({title, base, useCost, useCostAI, vat, result, aiOn}) {
+function tipElecTotal({title, base, useCost, useCostAI, vat, result, aiOn, isCool}) {
   let html = `<div class="tt-title">${title}</div>` +
     `<div class="tt-line"><span class="k">기본요금</span> <span class="v">${fmt(base)} 원</span></div>`;
-  if (aiOn) {
+  if (aiOn && isCool) {
     html += `<div class="tt-line"><span class="k">사용요금(정상)</span> <span class="v">${fmt(useCost)} 원</span></div>` +
-            `<div class="tt-line"><span class="k">AI감면 적용</span> <span class="v">${fmt(useCostAI)} 원 (×0.89)</span></div>` +
+            `<div class="tt-line"><span class="k">AI감면 적용</span> <span class="v">${fmt(useCostAI)} 원 (×0.89, 냉방기간)</span></div>` +
             `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(vat)} 원</span></div>` +
             `<div class="tt-formula">(${fmt(base)} + ${fmt(useCostAI)}) × 1.1</div>`;
   } else {
-    html += `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(useCost)} 원</span></div>` +
+    html += `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(useCost)} 원${aiOn && !isCool ? ' (난방월 — AI 미적용)':''}</span></div>` +
             `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(vat)} 원</span></div>` +
             `<div class="tt-formula">(${fmt(base)} + ${fmt(useCost)}) × 1.1</div>`;
   }
   html += `<div class="tt-result">= ${fmt(result)} 원</div>`;
-  if (aiOn) html += `<div class="tt-good">✓ AI통합제어 시스템 적용</div>`;
+  if (aiOn && isCool) html += `<div class="tt-good">✓ AI통합제어 시스템 적용 (냉방기간)</div>`;
+  else if (aiOn) html += `<div class="tt-note">AI 감면은 냉방기간(5~10월)에만 적용</div>`;
   return html;
 }
 
@@ -2461,7 +2464,8 @@ function absCalculate() {
 
   const aiOn = document.getElementById('aAiCheckbox').checked;
   absState.aiOn = aiOn;
-  const aiFactor = aiOn ? 0.89 : 1.0;  // 사용요금 11% 감면
+  // AI 감면은 냉방기간(5~10월)에만 적용 — 시험인증서 기준
+  const aiFactorOf = (m) => (aiOn && coolingSet.has(m)) ? 0.89 : 1.0;
 
   document.getElementById('aAiToggle').classList.toggle('active', aiOn);
 
@@ -2577,14 +2581,15 @@ function absCalculate() {
   // 기본요금: 매월 동일
   const monthlyBase = new Array(12).fill(connKW * t.base);
   const monthlyUseCostPre = totalKwh.map(v => v * rateGeneral);
-  const monthlyUseCost = monthlyUseCostPre.map(v => v * aiFactor);  // AI 적용
+  // AI 감면은 냉방월(5~10월)에만 적용
+  const monthlyUseCost = monthlyUseCostPre.map((v, i) => v * aiFactorOf(i));
   const monthlyPreVat = monthlyBase.map((v, i) => v + monthlyUseCost[i]);
   const monthlyVat = monthlyPreVat.map(v => v * 0.1);
   const monthlyElec = monthlyPreVat.map((v, i) => v + monthlyVat[i]);
 
-  // 가스요금
+  // 가스요금 (냉방월만 AI 감면 적용)
   const monthlyGasUseCostPre = gasUse.map((v, m) => v * gasHeat * gr[m]);
-  const monthlyGasUseCost = monthlyGasUseCostPre.map(v => v * aiFactor);
+  const monthlyGasUseCost = monthlyGasUseCostPre.map((v, i) => v * aiFactorOf(i));
   const monthlyGasVat = monthlyGasUseCost.map(v => v * 0.1);
   const monthlyGasTotal = monthlyGasUseCost.map((v, i) => v + monthlyGasVat[i]);
 
@@ -2595,10 +2600,11 @@ function absCalculate() {
   const totalElec = monthlyElec.reduce((a,b)=>a+b, 0);
   const totalGas = monthlyGasTotal.reduce((a,b)=>a+b, 0);
   const totalAll = totalElec + totalGas;
-  const totalUseCostPre = monthlyUseCostPre.reduce((a,b)=>a+b, 0);
-  const totalGasUseCostPre = monthlyGasUseCostPre.reduce((a,b)=>a+b, 0);
-  const aiSavingElec = totalUseCostPre * 0.11 * 1.1;  // VAT 포함 절감액
-  const aiSavingGas = totalGasUseCostPre * 0.11 * 1.1;
+  // 절감액 계산: 냉방월(5~10월)의 사용요금만 합산 × 11% × VAT 1.1
+  const coolUseCostPre = monthlyUseCostPre.reduce((a,v,i) => a + (coolingSet.has(i) ? v : 0), 0);
+  const coolGasCostPre = monthlyGasUseCostPre.reduce((a,v,i) => a + (coolingSet.has(i) ? v : 0), 0);
+  const aiSavingElec = coolUseCostPre * 0.11 * 1.1;  // VAT 포함 절감액 (냉방기간만)
+  const aiSavingGas = coolGasCostPre * 0.11 * 1.1;
   const aiSavingTotal = aiOn ? (aiSavingElec + aiSavingGas) : 0;
 
   // 결과 표시
@@ -2606,12 +2612,12 @@ function absCalculate() {
   document.getElementById('aTotalGasNm3').textContent = totalGasNm3.toLocaleString('ko-KR', {maximumFractionDigits:0}) + ' N㎥';
   document.getElementById('aTotalSplit').textContent = fmtEok(totalElec) + ' / ' + fmtEok(totalGas);
   document.getElementById('aTotalAll').textContent = fmtWon(totalAll);
-  document.getElementById('aTotalSub').textContent = '월평균 ' + fmtWon(totalAll/12) + (aiOn ? ' · AI절감 ' + fmtWon(aiSavingTotal) : '');
+  document.getElementById('aTotalSub').textContent = '월평균 ' + fmtWon(totalAll/12) + (aiOn ? ' · AI냉방기간절감 ' + fmtWon(aiSavingTotal) : '');
   const coolGas = gasUse.filter((v,m)=>coolingSet.has(m)).reduce((a,b)=>a+b,0);
   const heatGas = totalGasNm3 - coolGas;
   document.getElementById('aGasBreakdown').textContent = `냉방 ${Math.round(coolGas/1000)}k / 난방 ${Math.round(heatGas/1000)}k N㎥`;
-  document.getElementById('aElecBreakdown').textContent = `${aiOn?'AI적용 ':''}${connKW.toFixed(1)} kW 연결동력 (냉방기준)`;
-  document.getElementById('aSplitSub').textContent = aiOn ? `AI 적용 (사용요금 11% 감면)` : `AI 미적용`;
+  document.getElementById('aElecBreakdown').textContent = `${aiOn?'AI(냉방기간) 적용 ':''}${connKW.toFixed(1)} kW 연결동력 (냉방기준)`;
+  document.getElementById('aSplitSub').textContent = aiOn ? `AI 적용 — 냉방기간(5~10월) 사용요금 11% 감면` : `AI 미적용`;
 
   // 운전일수 표시
   const od = [];
@@ -2642,13 +2648,14 @@ function absCalculate() {
     if (aiOn) {
       tipsUseAI.push(monthlyUseCostPre[m] > 0.5 ? tipAISaving({
         title: months[m] + ' · AI통합제어 적용 사용요금',
-        original: monthlyUseCostPre[m], rateAI: 0.89, result: monthlyUseCost[m], kind: '사용요금'
+        original: monthlyUseCostPre[m], rateAI: 0.89, result: monthlyUseCost[m], kind: '사용요금',
+        isCool: coolingSet.has(m)
       }) : `<div class="tt-title">${months[m]} · AI 사용요금</div><div class="tt-note">기본 사용요금 없음</div>`);
     }
     tipsElec.push(tipElecTotal({
       title: months[m] + ' · 전기료 총계',
       base: monthlyBase[m], useCost: monthlyUseCostPre[m], useCostAI: monthlyUseCost[m],
-      vat: monthlyVat[m], result: monthlyElec[m], aiOn
+      vat: monthlyVat[m], result: monthlyElec[m], aiOn, isCool: coolingSet.has(m)
     }));
 
     tipsGasUsePre.push(gasUse[m] > 0.5 ? tipGasCost({
@@ -2658,17 +2665,20 @@ function absCalculate() {
     if (aiOn) {
       tipsGasUseAI.push(monthlyGasUseCostPre[m] > 0.5 ? tipAISaving({
         title: months[m] + ' · AI통합제어 적용 가스요금',
-        original: monthlyGasUseCostPre[m], rateAI: 0.89, result: monthlyGasUseCost[m], kind: '가스요금'
+        original: monthlyGasUseCostPre[m], rateAI: 0.89, result: monthlyGasUseCost[m], kind: '가스요금',
+        isCool: coolingSet.has(m)
       }) : `<div class="tt-title">${months[m]} · AI 가스요금</div><div class="tt-note">사용요금 없음</div>`);
     }
     tipsGasTotal.push(gasUse[m] > 0.5 ? (
       `<div class="tt-title">${months[m]} · 가스료 총계</div>` +
-      (aiOn ? `<div class="tt-line"><span class="k">사용요금(AI)</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원 (정상 ${fmt(monthlyGasUseCostPre[m])} × 0.89)</span></div>`
-            : `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원</span></div>`) +
+      (aiOn && coolingSet.has(m)
+        ? `<div class="tt-line"><span class="k">사용요금(AI)</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원 (정상 ${fmt(monthlyGasUseCostPre[m])} × 0.89)</span></div>`
+        : `<div class="tt-line"><span class="k">사용요금</span> <span class="v">${fmt(monthlyGasUseCost[m])} 원${aiOn && !coolingSet.has(m) ? ' (난방월 — AI 미적용)':''}</span></div>`) +
       `<div class="tt-line"><span class="k">부가세(10%)</span> <span class="v">${fmt(monthlyGasVat[m])} 원</span></div>` +
       `<div class="tt-formula">${fmt(monthlyGasUseCost[m])} × 1.1</div>` +
       `<div class="tt-result">= ${fmt(monthlyGasTotal[m])} 원</div>` +
-      (aiOn ? `<div class="tt-good">✓ AI통합제어 시스템 적용</div>` : '')
+      (aiOn && coolingSet.has(m) ? `<div class="tt-good">✓ AI통합제어 시스템 적용 (냉방기간)</div>` :
+       aiOn ? `<div class="tt-note">AI 감면은 냉방기간(5~10월)에만 적용</div>` : '')
     ) : `<div class="tt-title">${months[m]} · 가스료</div><div class="tt-note">부하 0 — 미사용</div>`);
 
     tipsCombined.push(tipGrandTotal({
@@ -2708,8 +2718,8 @@ function absCalculate() {
   ];
   if (aiOn) {
     elecCostRows.push({
-      label: `AI통합제어 적용 사용요금 (11% 감면)`, values: monthlyUseCost, cls: 'ai-saving', tips: tipsUseAI,
-      sumTip: tipSum({title:'AI 적용 사용요금', values: monthlyUseCost, unit:'원', note:'정상 사용요금 × 0.89'})
+      label: `AI통합제어 적용 사용요금 (냉방기간 5~10월만 11% 감면)`, values: monthlyUseCost, cls: 'ai-saving', tips: tipsUseAI,
+      sumTip: tipSum({title:'AI 적용 사용요금', values: monthlyUseCost, unit:'원', note:'냉방기간(5~10월): 정상 × 0.89 / 난방기간: 정상 그대로'})
     });
   }
   elecCostRows.push({
@@ -2724,8 +2734,8 @@ function absCalculate() {
   ];
   if (aiOn) {
     gasCostRows.push({
-      label: 'AI통합제어 적용 사용요금 (11% 감면)', values: monthlyGasUseCost, cls: 'ai-saving', tips: tipsGasUseAI,
-      sumTip: tipSum({title:'AI 적용 가스 사용요금', values: monthlyGasUseCost, unit:'원'})
+      label: 'AI통합제어 적용 사용요금 (냉방기간 5~10월만 11% 감면)', values: monthlyGasUseCost, cls: 'ai-saving', tips: tipsGasUseAI,
+      sumTip: tipSum({title:'AI 적용 가스 사용요금', values: monthlyGasUseCost, unit:'원', note:'냉방기간: 0.89 / 난방기간: 1.00'})
     });
   }
   gasCostRows.push({
@@ -2739,10 +2749,10 @@ function absCalculate() {
       sumTip: `<div class="tt-title">연간 총 운전비</div>` +
         `<div class="tt-line"><span class="k">연간 전기료</span> <span class="v">${fmt(totalElec)} 원</span></div>` +
         `<div class="tt-line"><span class="k">연간 가스료</span> <span class="v">${fmt(totalGas)} 원</span></div>` +
-        (aiOn ? `<div class="tt-line"><span class="k">AI 절감액</span> <span class="v">${fmt(aiSavingTotal)} 원</span></div>` : '') +
+        (aiOn ? `<div class="tt-line"><span class="k">AI 절감액</span> <span class="v">${fmt(aiSavingTotal)} 원 (냉방기간)</span></div>` : '') +
         `<div class="tt-formula">${fmt(totalElec)} + ${fmt(totalGas)}</div>` +
         `<div class="tt-result">= ${fmt(totalAll)} 원</div>` +
-        (aiOn ? `<div class="tt-good">✓ AI통합제어 적용 (사용요금 -11%)</div>` : '') }
+        (aiOn ? `<div class="tt-good">✓ AI통합제어 적용 — 냉방기간(5~10월) 사용요금만 11% 감면</div>` : '') }
   ];
   document.getElementById('aTotalCostTable').innerHTML = buildTable(totalRows);
 
@@ -2906,10 +2916,10 @@ function renderComparison() {
   const absHTML = `
     <div class="cmp-row"><span class="lbl">시스템 구성</span><span class="val">흡수식 냉온수기 ${abs.N}대 (대당 ${abs.inputs.usrt} USRT)</span></div>
     <div class="cmp-row"><span class="lbl">전기 요금제</span><span class="val">${abs.tier}</span></div>
-    <div class="cmp-row"><span class="lbl">AI 통합제어</span><span class="val" style="color:${abs.aiOn?'#7c3aed':'#94a3b8'};">${abs.aiOn?'✓ 적용 (사용요금 -11%)':'미적용'}</span></div>
+    <div class="cmp-row"><span class="lbl">AI 통합제어</span><span class="val" style="color:${abs.aiOn?'#7c3aed':'#94a3b8'};">${abs.aiOn?'✓ 적용 (냉방기간 5~10월만 -11%)':'미적용'}</span></div>
     <div class="cmp-row"><span class="lbl">연간 전기 사용량</span><span class="val">${fmt(abs.totalElecKwh)} kWh</span></div>
     <div class="cmp-row"><span class="lbl">연간 가스 사용량</span><span class="val">${fmt(abs.totalGasNm3)} N㎥</span></div>
-    ${abs.aiOn ? `<div class="cmp-row"><span class="lbl">AI 절감액 (전기+가스)</span><span class="val" style="color:#7c3aed;">${fmtWon(abs.aiSavingTotal)}</span></div>` : ''}
+    ${abs.aiOn ? `<div class="cmp-row"><span class="lbl">AI 절감액 (냉방기간)</span><span class="val" style="color:#7c3aed;">${fmtWon(abs.aiSavingTotal)}</span></div>` : ''}
     ${spacers}
     <div class="cmp-row highlight"><span class="lbl">연간 전기료 (VAT 포함)</span><span class="val">${fmtEok(abs.totalElec)}원 (${fmtWon(abs.totalElec)})</span></div>
     <div class="cmp-row highlight"><span class="lbl">연간 가스료 (VAT 포함)</span><span class="val">${fmtEok(abs.totalGas)}원 (${fmtWon(abs.totalGas)})</span></div>
@@ -3186,7 +3196,7 @@ function absMakeSummarySheet() {
     ['흡수식 냉온수기 시스템 운전비 — 요약 결과'],
     ['생성일', new Date().toLocaleString('ko-KR')],
     [],
-    ['AI통합제어 시스템 적용', c.aiOn ? '예 (사용요금 11% 감면)' : '아니오'],
+    ['AI통합제어 시스템 적용', c.aiOn ? '예 (냉방기간 5~10월 사용요금 11% 감면)' : '아니오'],
     [],
     ['항목', '값', '단위'],
     ['연간 전기 사용량', c.totalElecKwh, 'kWh'],
